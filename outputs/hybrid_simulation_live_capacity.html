@@ -1,0 +1,2727 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hybrid Delivery Simulation - Live Dashboard (Capacity Aware)</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px; color: #333;
+        }
+        .container {
+            max-width: 1400px; margin: 0 auto; background: white;
+            border-radius: 15px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; padding: 30px; text-align: center;
+        }
+        .header h1 { font-size: 2.5em; margin-bottom: 10px; }
+        .header p { font-size: 1.1em; opacity: 0.9; }
+        .stats-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px; padding: 30px; background: #f8f9fa;
+        }
+        .stat-card {
+            background: white; padding: 25px; border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center;
+            transition: transform 0.3s;
+        }
+        .stat-card:hover { transform: translateY(-5px); }
+        .stat-value {
+            font-size: 2.5em; font-weight: bold; color: #667eea; margin: 10px 0;
+        }
+        .stat-label {
+            color: #666; font-size: 0.9em; text-transform: uppercase; letter-spacing: 1px;
+        }
+        .content { padding: 30px; }
+        .section { margin-bottom: 40px; }
+        .section-title {
+            font-size: 1.8em; color: #667eea; margin-bottom: 20px;
+            padding-bottom: 10px; border-bottom: 3px solid #667eea;
+        }
+        #map {
+            width: 100%; height: 600px; border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.2); margin-bottom: 20px;
+        }
+        .map-controls {
+            display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap;
+        }
+        .vehicle-toggle {
+            padding: 10px 20px; border: 2px solid #667eea; border-radius: 25px;
+            background: white; cursor: pointer; transition: all 0.3s; font-weight: bold;
+        }
+        .vehicle-toggle.active { background: #667eea; color: white; }
+        .vehicle-toggle:hover { transform: scale(1.05); }
+        .distance-info {
+            background: #f8f9fa; padding: 20px; border-radius: 10px;
+            border-left: 4px solid #667eea; margin-top: 20px; display: none;
+        }
+        .distance-info.active { display: block; }
+        .distance-info h4 { color: #667eea; margin-bottom: 10px; }
+        .distance-details {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px; margin-top: 15px;
+        }
+        .distance-detail {
+            background: white; padding: 15px; border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .distance-label { font-size: 0.9em; color: #666; margin-bottom: 5px; }
+        .distance-value { font-size: 1.5em; font-weight: bold; color: #667eea; }
+        .timeline { position: relative; padding-left: 30px; }
+        .timeline::before {
+            content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+            width: 3px; background: linear-gradient(to bottom, #667eea, #764ba2);
+        }
+        .timeline-event {
+            position: relative; margin-bottom: 30px; padding: 20px;
+            background: #f8f9fa; border-radius: 8px; border-left: 4px solid #667eea;
+        }
+        .timeline-event::before {
+            content: ''; position: absolute; left: -36px; top: 20px;
+            width: 12px; height: 12px; border-radius: 50%;
+            background: #667eea; border: 3px solid white; box-shadow: 0 0 0 3px #667eea;
+        }
+        .event-time {
+            font-weight: bold; color: #667eea; font-size: 1.1em; margin-bottom: 8px;
+        }
+        .event-type {
+            display: inline-block; padding: 4px 12px; border-radius: 20px;
+            font-size: 0.85em; font-weight: bold; margin-bottom: 10px;
+        }
+        .event-new-order { background: #ffd93d; color: #333; }
+        .event-assignment { background: #6bcf7f; color: white; }
+        .event-optimization { background: #667eea; color: white; }
+        .event-rejected { background: #ff6b6b; color: white; }
+        .event-details { color: #555; line-height: 1.6; }
+        .vehicle-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .vehicle-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; padding: 25px; border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+        }
+        .vehicle-header {
+            font-size: 1.5em; font-weight: bold; margin-bottom: 15px;
+            padding-bottom: 10px; border-bottom: 2px solid rgba(255,255,255,0.3);
+        }
+        .route-stop {
+            padding: 10px; margin: 8px 0; background: rgba(255,255,255,0.2);
+            border-radius: 6px; font-size: 0.95em; cursor: pointer;
+            transition: all 0.2s ease-in-out;
+        }
+        .route-stop:hover {
+            background: rgba(255,255,255,0.4); transform: scale(1.02);
+        }
+        .route-stop.highlighted {
+            background: #ffc107 !important; color: #333 !important;
+            transform: scale(1.05); font-weight: bold;
+        }
+        .route-metrics {
+            display: grid;
+            /* UPDATED: 3 columns for new metrics */
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px; margin-top: 15px;
+        }
+        .metric {
+            background: rgba(255,255,255,0.2); padding: 10px;
+            border-radius: 6px; text-align: center;
+        }
+        .metric-value { font-size: 1.3em; font-weight: bold; } /* Slightly smaller for 3 cols */
+        .metric-label { font-size: 0.85em; opacity: 0.9; }
+        .pending-orders {
+            background: #fff3cd; border: 2px solid #ffc107;
+            border-radius: 10px; padding: 20px; margin-bottom: 20px;
+        }
+        .pending-orders h3 { color: #856404; margin-bottom: 15px; }
+        .pending-order {
+            background: white; padding: 12px; margin: 8px 0;
+            border-radius: 6px; border-left: 4px solid #ffc107;
+        }
+        .map-legend {
+            background: white; padding: 15px; border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px;
+        }
+        .legend-item { display: flex; align-items: center; margin: 8px 0; }
+        .legend-icon {
+            width: 30px; height: 30px; margin-right: 10px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center; font-weight: bold;
+        }
+        .legend-icon.depot { background: #dc3545; color: white; border-radius: 4px; }
+        .legend-icon.stop { background: #667eea; color: white; }
+
+        /* --- NEW STYLES FOR ASSIGNMENT LOG --- */
+        .log-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .log-table th, .log-table td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        .log-table th {
+            background-color: #667eea;
+            color: white;
+            font-size: 0.9em;
+            text-transform: uppercase;
+        }
+        .log-table tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        .log-table tr:hover {
+            background-color: #f1f1f1;
+        }
+
+        /* --- COLLAPSIBLE SECTIONS STYLES --- */
+        .collapsible-section {
+            margin-bottom: 30px;
+            border: 1px solid #e0e0e0;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+        }
+        
+        .collapsible-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 25px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+            user-select: none;
+        }
+        
+        .collapsible-header:hover {
+            background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+            transform: translateY(-2px);
+        }
+        
+        .collapsible-title {
+            font-size: 1.4em;
+            font-weight: bold;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .collapsible-icon {
+            font-size: 1.2em;
+            transition: transform 0.3s ease;
+        }
+        
+        .collapsible-icon.expanded {
+            transform: rotate(180deg);
+        }
+        
+        .collapsible-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease, padding 0.3s ease;
+            background: white;
+        }
+        
+        .collapsible-content.expanded {
+            max-height: 2000px;
+            padding: 25px;
+        }
+        
+        .collapsible-content.collapsed {
+            max-height: 0;
+            padding: 0 25px;
+        }
+        
+        /* Central Controls */
+        .central-controls {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            text-align: center;
+            border: 2px solid #e9ecef;
+        }
+        
+        .central-controls h3 {
+            margin: 0 0 15px 0;
+            color: #495057;
+            font-size: 1.3em;
+        }
+        
+        .control-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        .control-btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 25px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.95em;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .control-btn.expand-all {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+        }
+        
+        .control-btn.expand-all:hover {
+            background: linear-gradient(135deg, #218838 0%, #1ea085 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(40, 167, 69, 0.3);
+        }
+        
+        .control-btn.collapse-all {
+            background: linear-gradient(135deg, #dc3545 0%, #fd7e14 100%);
+            color: white;
+        }
+        
+        .control-btn.collapse-all:hover {
+            background: linear-gradient(135deg, #c82333 0%, #e8650e 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(220, 53, 69, 0.3);
+        }
+        
+        .control-btn.toggle-all {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .control-btn.toggle-all:hover {
+            background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+        }
+        
+        /* Section-specific styling */
+        .section-icon {
+            font-size: 1.3em;
+            margin-right: 8px;
+        }
+        
+        .fleet-status-content {
+            padding: 0;
+        }
+        
+        .timeline-content {
+            padding: 0;
+        }
+        
+        .log-content {
+            padding: 0;
+        }
+        
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .control-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .control-btn {
+                width: 200px;
+            }
+            
+            .collapsible-header {
+                padding: 15px 20px;
+            }
+            
+            .collapsible-title {
+                font-size: 1.2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚚 Hybrid Delivery Simulation Dashboard</h1>
+            <p>Real-time Vehicle Routing with Capacity Constraints (Trace-Based)</p>
+            <p><strong>Simulation Period:</strong> 09:00 AM - 10:00 PM</p>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Total Orders</div>
+                <div class="stat-value">79</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Orders Assigned</div>
+                <div class="stat-value">79</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Pending (End of Day)</div>
+                <div class="stat-value">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Active Vehicles (Final)</div>
+                <div class="stat-value">7</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Layer 2 Optimizations</div>
+                <div class="stat-value">1</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Avg Final Route</div>
+                <div class="stat-value">2 min</div>
+            </div>
+        </div>
+        
+        <div class="content">
+            
+            
+            <!-- Central Controls -->
+            <div class="central-controls">
+                <h3>📋 Section Controls</h3>
+                <div class="control-buttons">
+                    <button class="control-btn expand-all" onclick="expandAllSections()">
+                        📖 Expand All
+                    </button>
+                    <button class="control-btn collapse-all" onclick="collapseAllSections()">
+                        📕 Collapse All
+                    </button>
+                    <button class="control-btn toggle-all" onclick="toggleAllSections()">
+                        🔄 Toggle All
+                    </button>
+                </div>
+            </div>
+            
+            <div class="section">
+                <h2 class="section-title">🗺️ Interactive Route Map (Final State at 10:00 PM)</h2>
+                <div class="map-legend">
+                    <div class="legend-item">
+                        <div class="legend-icon depot">D</div> <span>Depot (Start/End Point)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-icon stop">●</div> <span>Delivery Stop</span>
+                    </div>
+                </div>
+                <div class="map-controls" id="vehicleToggles"></div>
+                <div id="map"></div>
+                <div class="distance-info" id="distanceInfo">
+                    <h4>📍 Route Segment Information</h4>
+                    <p id="segmentDescription">Select two consecutive stops on a route to see travel details.</p>
+                    <div class="distance-details" id="distanceDetails"></div>
+                </div>
+            </div>
+
+            <!-- Historical Order Assignment Log Section -->
+            <div class="collapsible-section" id="historical-log-section">
+                <div class="collapsible-header" onclick="toggleSection('historical-log-section')">
+                    <h3 class="collapsible-title">
+                        <span class="section-icon">📈</span>
+                        Historical Order Assignment Log
+                    </h3>
+                    <span class="collapsible-icon">▼</span>
+                </div>
+                <div class="collapsible-content log-content" id="historical-log-content">
+                    
+            <p>Shows every individual order assignment that occurred during the day. (Total: 79)</p>
+            <table class="log-table">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Order ID</th>
+                        <th>Location</th>
+                        <th>Demand</th>
+                        <th>Assigned Vehicle</th>
+                        <th>Method</th>
+                    </tr>
+                </thead>
+                <tbody>
+        
+                    <tr>
+                        <td><strong>09:00 AM</strong></td>
+                        <td>#6151460444</td>
+                        <td>Swaad</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 0</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>09:00 AM</strong></td>
+                        <td>#6166222213</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 0</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>09:00 AM</strong></td>
+                        <td>#6162561202</td>
+                        <td>Swaad</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 0</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>09:00 AM</strong></td>
+                        <td>#6163152250</td>
+                        <td>My New Central Kitchen</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 0</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>09:00 AM</strong></td>
+                        <td>#6164225680</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 0</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>09:00 AM</strong></td>
+                        <td>#6162194598</td>
+                        <td>Aura Pizzas</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 0</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>09:00 AM</strong></td>
+                        <td>#6168262742</td>
+                        <td>Swaad</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 0</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>09:00 AM</strong></td>
+                        <td>#6152764316</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 0</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>09:00 AM</strong></td>
+                        <td>#6168111876</td>
+                        <td>Aura Pizzas</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 0</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>09:00 AM</strong></td>
+                        <td>#6158682689</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 0</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>09:00 AM</strong></td>
+                        <td>#6165289639</td>
+                        <td>Swaad</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 0</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>09:00 AM</strong></td>
+                        <td>#6148368487</td>
+                        <td>Swaad</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 0</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>11:10 AM</strong></td>
+                        <td>#6163183752</td>
+                        <td>Aura Pizzas</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 0</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>11:10 AM</strong></td>
+                        <td>#6164800078</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 0</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>11:20 AM</strong></td>
+                        <td>#6167194990</td>
+                        <td>Swaad</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 0</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>12:10 PM</strong></td>
+                        <td>#6165257699</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 1</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>12:10 PM</strong></td>
+                        <td>#6163530459</td>
+                        <td>Aura Pizzas</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 1</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>12:20 PM</strong></td>
+                        <td>#6168460547</td>
+                        <td>Sikandarpur</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 1</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>12:20 PM</strong></td>
+                        <td>#6164725184</td>
+                        <td>Swaad</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 1</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>12:40 PM</strong></td>
+                        <td>#6165976485</td>
+                        <td>Swaad</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 1</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>01:00 PM</strong></td>
+                        <td>#6165269156</td>
+                        <td>Aura Pizzas</td>
+                        <td>3</td>
+                        <td><strong>Vehicle 1</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>01:00 PM</strong></td>
+                        <td>#6163308987</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 1</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>01:10 PM</strong></td>
+                        <td>#6162026842</td>
+                        <td>Aura Pizzas</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 1</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>01:20 PM</strong></td>
+                        <td>#6161695316</td>
+                        <td>Aura Pizzas</td>
+                        <td>4</td>
+                        <td><strong>Vehicle 1</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>01:20 PM</strong></td>
+                        <td>#6167170421</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 1</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>01:20 PM</strong></td>
+                        <td>#6161292989</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 1</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>01:30 PM</strong></td>
+                        <td>#6167150125</td>
+                        <td>Swaad</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 2</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>01:50 PM</strong></td>
+                        <td>#6169062392</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 2</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>01:50 PM</strong></td>
+                        <td>#6168418159</td>
+                        <td>Swaad</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 2</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>02:00 PM</strong></td>
+                        <td>#6160640802</td>
+                        <td>Aura Pizzas</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 2</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>02:00 PM</strong></td>
+                        <td>#6167358098</td>
+                        <td>Swaad</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 2</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>02:10 PM</strong></td>
+                        <td>#6167707628</td>
+                        <td>Swaad</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 2</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>02:20 PM</strong></td>
+                        <td>#6157900606</td>
+                        <td>Aura Pizzas</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 2</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>02:50 PM</strong></td>
+                        <td>#6168242254</td>
+                        <td>Swaad</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 2</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>02:50 PM</strong></td>
+                        <td>#6169142809</td>
+                        <td>Swaad</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 2</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>03:00 PM</strong></td>
+                        <td>#6167540897</td>
+                        <td>Swaad</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 2</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>03:10 PM</strong></td>
+                        <td>#6168635070</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 2</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>03:30 PM</strong></td>
+                        <td>#6167008227</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 2</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>03:40 PM</strong></td>
+                        <td>#6159787130</td>
+                        <td>Aura Pizzas</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 2</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>03:40 PM</strong></td>
+                        <td>#6169204886</td>
+                        <td>Aura Pizzas</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 2</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>03:40 PM</strong></td>
+                        <td>#6151677434</td>
+                        <td>Swaad</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 3</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>03:40 PM</strong></td>
+                        <td>#6166342445</td>
+                        <td>Aura Pizzas</td>
+                        <td>3</td>
+                        <td><strong>Vehicle 3</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>03:40 PM</strong></td>
+                        <td>#6168717281</td>
+                        <td>Swaad</td>
+                        <td>3</td>
+                        <td><strong>Vehicle 3</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>03:50 PM</strong></td>
+                        <td>#6169375019</td>
+                        <td>Swaad</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 2</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>04:10 PM</strong></td>
+                        <td>#6169133439</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 3</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>04:20 PM</strong></td>
+                        <td>#6169207702</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 3</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>04:30 PM</strong></td>
+                        <td>#6166885944</td>
+                        <td>Aura Pizzas</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 3</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>05:20 PM</strong></td>
+                        <td>#6169114743</td>
+                        <td>Aura Pizzas</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 3</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>06:40 PM</strong></td>
+                        <td>#6169891256</td>
+                        <td>My New Central Kitchen</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 3</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>06:50 PM</strong></td>
+                        <td>#6165896524</td>
+                        <td>Swaad</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 3</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>07:00 PM</strong></td>
+                        <td>#6169113831</td>
+                        <td>Swaad</td>
+                        <td>4</td>
+                        <td><strong>Vehicle 3</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>07:10 PM</strong></td>
+                        <td>#6165031782</td>
+                        <td>Swaad</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 4</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>07:10 PM</strong></td>
+                        <td>#6167995589</td>
+                        <td>Swaad</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 4</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>07:10 PM</strong></td>
+                        <td>#6167121590</td>
+                        <td>Swaad</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 4</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>07:20 PM</strong></td>
+                        <td>#6163045652</td>
+                        <td>Aura Pizzas</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 4</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>07:20 PM</strong></td>
+                        <td>#6162036795</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 4</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>07:30 PM</strong></td>
+                        <td>#6168292271</td>
+                        <td>Aura Pizzas</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 4</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>07:40 PM</strong></td>
+                        <td>#6167097169</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 4</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>07:40 PM</strong></td>
+                        <td>#6168687319</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 4</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>07:40 PM</strong></td>
+                        <td>#6169358683</td>
+                        <td>Aura Pizzas</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 4</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>07:50 PM</strong></td>
+                        <td>#6169919108</td>
+                        <td>Aura Pizzas</td>
+                        <td>3</td>
+                        <td><strong>Vehicle 4</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>08:00 PM</strong></td>
+                        <td>#6161290353</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 4</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>08:00 PM</strong></td>
+                        <td>#6156674289</td>
+                        <td>Aura Pizzas</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 4</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>08:00 PM</strong></td>
+                        <td>#6168940043</td>
+                        <td>Aura Pizzas</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 4</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>08:10 PM</strong></td>
+                        <td>#6168584321</td>
+                        <td>Aura Pizzas</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 5</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>08:10 PM</strong></td>
+                        <td>#6158730663</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 5</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>08:10 PM</strong></td>
+                        <td>#6169069021</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 5</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>08:20 PM</strong></td>
+                        <td>#6169828720</td>
+                        <td>Aura Pizzas</td>
+                        <td>3</td>
+                        <td><strong>Vehicle 5</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>08:30 PM</strong></td>
+                        <td>#6170217857</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 5</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>08:30 PM</strong></td>
+                        <td>#6167842228</td>
+                        <td>Swaad</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 5</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>08:50 PM</strong></td>
+                        <td>#6159343792</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 5</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>08:50 PM</strong></td>
+                        <td>#6164933438</td>
+                        <td>Sikandarpur</td>
+                        <td>6</td>
+                        <td><strong>Vehicle 5</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>09:00 PM</strong></td>
+                        <td>#6163227290</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 5</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>09:10 PM</strong></td>
+                        <td>#6165256795</td>
+                        <td>My New Central Kitchen</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 5</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>09:20 PM</strong></td>
+                        <td>#6169424336</td>
+                        <td>Swaad</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 5</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>09:30 PM</strong></td>
+                        <td>#6168428103</td>
+                        <td>Swaad</td>
+                        <td>2</td>
+                        <td><strong>Vehicle 6</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>09:30 PM</strong></td>
+                        <td>#6169663570</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 6</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>09:40 PM</strong></td>
+                        <td>#6168427326</td>
+                        <td>Swaad</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 6</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            
+                    <tr>
+                        <td><strong>09:40 PM</strong></td>
+                        <td>#6169971633</td>
+                        <td>Aura Pizzas</td>
+                        <td>1</td>
+                        <td><strong>Vehicle 6</strong></td>
+                        <td>Best Insertion</td>
+                    </tr>
+            </tbody></table>
+                </div>
+            </div>
+
+            <!-- Final Fleet Status Section -->
+            <div class="collapsible-section" id="fleet-status-section">
+                <div class="collapsible-header" onclick="toggleSection('fleet-status-section')">
+                    <h3 class="collapsible-title">
+                        <span class="section-icon">🚚</span>
+                        Final Fleet Status (Snapshot at 10:00 PM)
+                    </h3>
+                    <span class="collapsible-icon">▼</span>
+                </div>
+                <div class="collapsible-content fleet-status-content" id="fleet-status-content">
+                    <div class="vehicle-grid">
+                        
+                <div class="vehicle-card">
+                    <div class="vehicle-header">Vehicle 0</div>
+                    <p style="text-align: center; opacity: 0.7; padding: 20px;">No route assigned</p>
+                </div>
+                
+                <div class="vehicle-card">
+                    <div class="vehicle-header">Vehicle 1</div>
+                    <p style="text-align: center; opacity: 0.7; padding: 20px;">No route assigned</p>
+                </div>
+                
+                <div class="vehicle-card">
+                    <div class="vehicle-header">Vehicle 2</div>
+                    <p style="text-align: center; opacity: 0.7; padding: 20px;">No route assigned</p>
+                </div>
+                
+                <div class="vehicle-card">
+                    <div class="vehicle-header">Vehicle 3</div>
+                    <p style="text-align: center; opacity: 0.7; padding: 20px;">No route assigned</p>
+                </div>
+                
+                <div class="vehicle-card">
+                    <div class="vehicle-header">Vehicle 4</div>
+                    <p style="text-align: center; opacity: 0.7; padding: 20px;">No route assigned</p>
+                </div>
+                
+                <div class="vehicle-card">
+                    <div class="vehicle-header">Vehicle 5</div>
+                    
+                    <div class="route-stop" 
+                         onclick="highlightStop(this, 5, 1)">
+                        1. Sikandarpur
+                    </div>
+                    
+                    <div class="route-metrics">
+                        <div class="metric">
+                            <div class="metric-value">1</div>
+                            <div class="metric-label">Stops</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">8 / 20</div>
+                            <div class="metric-label">Capacity</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">5</div>
+                            <div class="metric-label">Minutes</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="vehicle-card">
+                    <div class="vehicle-header">Vehicle 6</div>
+                    
+                    <div class="route-stop" 
+                         onclick="highlightStop(this, 6, 1)">
+                        1. Swaad
+                    </div>
+                    
+                    <div class="route-stop" 
+                         onclick="highlightStop(this, 6, 2)">
+                        2. Aura Pizzas
+                    </div>
+                    
+                    <div class="route-stop" 
+                         onclick="highlightStop(this, 6, 3)">
+                        3. Swaad
+                    </div>
+                    
+                    <div class="route-metrics">
+                        <div class="metric">
+                            <div class="metric-value">3</div>
+                            <div class="metric-label">Stops</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">20 / 20</div>
+                            <div class="metric-label">Capacity</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">2</div>
+                            <div class="metric-label">Minutes</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="vehicle-card">
+                    <div class="vehicle-header">Vehicle 7</div>
+                    
+                    <div class="route-stop" 
+                         onclick="highlightStop(this, 7, 1)">
+                        1. Swaad
+                    </div>
+                    
+                    <div class="route-stop" 
+                         onclick="highlightStop(this, 7, 2)">
+                        2. Aura Pizzas
+                    </div>
+                    
+                    <div class="route-metrics">
+                        <div class="metric">
+                            <div class="metric-value">2</div>
+                            <div class="metric-label">Stops</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">20 / 20</div>
+                            <div class="metric-label">Capacity</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">2</div>
+                            <div class="metric-label">Minutes</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="vehicle-card">
+                    <div class="vehicle-header">Vehicle 8</div>
+                    
+                    <div class="route-stop" 
+                         onclick="highlightStop(this, 8, 1)">
+                        1. Aura Pizzas
+                    </div>
+                    
+                    <div class="route-stop" 
+                         onclick="highlightStop(this, 8, 2)">
+                        2. Aura Pizzas
+                    </div>
+                    
+                    <div class="route-stop" 
+                         onclick="highlightStop(this, 8, 3)">
+                        3. Swaad
+                    </div>
+                    
+                    <div class="route-metrics">
+                        <div class="metric">
+                            <div class="metric-value">3</div>
+                            <div class="metric-label">Stops</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">20 / 20</div>
+                            <div class="metric-label">Capacity</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">2</div>
+                            <div class="metric-label">Minutes</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="vehicle-card">
+                    <div class="vehicle-header">Vehicle 9</div>
+                    
+                    <div class="route-stop" 
+                         onclick="highlightStop(this, 9, 1)">
+                        1. Swaad
+                    </div>
+                    
+                    <div class="route-stop" 
+                         onclick="highlightStop(this, 9, 2)">
+                        2. Aura Pizzas
+                    </div>
+                    
+                    <div class="route-metrics">
+                        <div class="metric">
+                            <div class="metric-value">2</div>
+                            <div class="metric-label">Stops</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">19 / 20</div>
+                            <div class="metric-label">Capacity</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">1</div>
+                            <div class="metric-label">Minutes</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="vehicle-card">
+                    <div class="vehicle-header">Vehicle 10</div>
+                    
+                    <div class="route-stop" 
+                         onclick="highlightStop(this, 10, 1)">
+                        1. Swaad
+                    </div>
+                    
+                    <div class="route-stop" 
+                         onclick="highlightStop(this, 10, 2)">
+                        2. Aura Pizzas
+                    </div>
+                    
+                    <div class="route-metrics">
+                        <div class="metric">
+                            <div class="metric-value">2</div>
+                            <div class="metric-label">Stops</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">18 / 20</div>
+                            <div class="metric-label">Capacity</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">1</div>
+                            <div class="metric-label">Minutes</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="vehicle-card">
+                    <div class="vehicle-header">Vehicle 11</div>
+                    
+                    <div class="route-stop" 
+                         onclick="highlightStop(this, 11, 1)">
+                        1. My New Central Kitchen
+                    </div>
+                    
+                    <div class="route-stop" 
+                         onclick="highlightStop(this, 11, 2)">
+                        2. Aura Pizzas
+                    </div>
+                    
+                    <div class="route-metrics">
+                        <div class="metric">
+                            <div class="metric-value">2</div>
+                            <div class="metric-label">Stops</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">20 / 20</div>
+                            <div class="metric-label">Capacity</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">1</div>
+                            <div class="metric-label">Minutes</div>
+                        </div>
+                    </div>
+                </div>
+                
+                    </div>
+                </div>
+            </div>
+            
+             
+            
+            <!-- Simulation Event Timeline Section -->
+            <div class="collapsible-section" id="timeline-section">
+                <div class="collapsible-header" onclick="toggleSection('timeline-section')">
+                    <h3 class="collapsible-title">
+                        <span class="section-icon">⏰</span>
+                        Simulation Event Timeline
+                    </h3>
+                    <span class="collapsible-icon">▼</span>
+                </div>
+                <div class="collapsible-content timeline-content" id="timeline-content">
+                    <div class="timeline">
+                        
+        <div class="timeline-event">
+            <div class="event-time">09:00 AM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6151460444</strong> (Demand: 1) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 AM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6166222213</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 AM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6162561202</strong> (Demand: 1) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 AM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6163152250</strong> (Demand: 2) received for <strong>My New Central Kitchen</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 AM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6164225680</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 AM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6162194598</strong> (Demand: 2) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 AM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6168262742</strong> (Demand: 1) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 AM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6152764316</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 AM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6168111876</strong> (Demand: 2) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 AM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6158682689</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 AM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6165289639</strong> (Demand: 1) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 AM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6148368487</strong> (Demand: 2) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 AM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6151460444 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 AM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6166222213 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 AM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6162561202 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 AM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6163152250 via <strong>Best Insertion</strong>. Dest: My New Central Kitchen</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 AM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6164225680 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 AM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6162194598 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 AM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6168262742 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 AM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6152764316 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 AM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6168111876 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 AM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6158682689 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 AM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6165289639 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 AM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6148368487 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">11:10 AM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6163183752</strong> (Demand: 2) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">11:10 AM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6164800078</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">11:10 AM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6163183752 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">11:10 AM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6164800078 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">11:20 AM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6167194990</strong> (Demand: 1) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">11:20 AM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6167194990 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">12:10 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6165257699</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">12:10 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6163530459</strong> (Demand: 2) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">12:10 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6165257699 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">12:10 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6163530459 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">12:20 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6168460547</strong> (Demand: 2) received for <strong>Sikandarpur</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">12:20 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6164725184</strong> (Demand: 2) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">12:20 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6168460547 via <strong>Best Insertion</strong>. Dest: Sikandarpur</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">12:20 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6164725184 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">12:40 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6165976485</strong> (Demand: 1) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">12:40 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6165976485 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">01:00 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6165269156</strong> (Demand: 3) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">01:00 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6163308987</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">01:00 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6165269156 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">01:00 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6163308987 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">01:10 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6162026842</strong> (Demand: 2) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">01:10 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6162026842 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">01:20 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6161695316</strong> (Demand: 4) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">01:20 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6167170421</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">01:20 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6161292989</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">01:20 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6161695316 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">01:20 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6167170421 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">01:20 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6161292989 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">01:30 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6167150125</strong> (Demand: 1) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">01:30 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6167150125 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">01:50 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6169062392</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">01:50 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6168418159</strong> (Demand: 1) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">01:50 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6169062392 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">01:50 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6168418159 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">02:00 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6160640802</strong> (Demand: 2) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">02:00 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6167358098</strong> (Demand: 1) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">02:00 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6160640802 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">02:00 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6167358098 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">02:10 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6167707628</strong> (Demand: 1) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">02:10 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6167707628 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">02:20 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6157900606</strong> (Demand: 2) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">02:20 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6157900606 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">02:50 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6168242254</strong> (Demand: 1) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">02:50 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6169142809</strong> (Demand: 1) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">02:50 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6168242254 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">02:50 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6169142809 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">03:00 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6167540897</strong> (Demand: 2) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">03:00 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6167540897 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">03:10 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6168635070</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">03:10 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6168635070 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">03:30 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6167008227</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">03:30 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6167008227 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">03:40 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6159787130</strong> (Demand: 2) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">03:40 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6169204886</strong> (Demand: 2) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">03:40 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6151677434</strong> (Demand: 2) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">03:40 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6166342445</strong> (Demand: 3) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">03:40 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6168717281</strong> (Demand: 3) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">03:40 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6159787130 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">03:40 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6169204886 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">03:40 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6151677434 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">03:40 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6166342445 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">03:40 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6168717281 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">03:50 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6169375019</strong> (Demand: 1) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">03:50 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6169375019 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">04:10 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6169133439</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">04:10 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6169133439 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">04:20 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6169207702</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">04:20 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6169207702 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">04:30 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6166885944</strong> (Demand: 2) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">04:30 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6166885944 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">05:20 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6169114743</strong> (Demand: 2) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">05:20 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6169114743 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">06:40 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6169891256</strong> (Demand: 1) received for <strong>My New Central Kitchen</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">06:40 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6169891256 via <strong>Best Insertion</strong>. Dest: My New Central Kitchen</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">06:50 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6165896524</strong> (Demand: 1) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">06:50 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6165896524 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">07:00 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6169113831</strong> (Demand: 4) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">07:00 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6169113831 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">07:10 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6165031782</strong> (Demand: 1) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">07:10 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6167995589</strong> (Demand: 1) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">07:10 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6167121590</strong> (Demand: 1) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">07:10 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6165031782 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">07:10 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6167995589 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">07:10 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6167121590 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">07:20 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6163045652</strong> (Demand: 2) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">07:20 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6162036795</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">07:20 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6163045652 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">07:20 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6162036795 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">07:30 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6168292271</strong> (Demand: 2) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">07:30 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6168292271 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">07:40 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6167097169</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">07:40 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6168687319</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">07:40 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6169358683</strong> (Demand: 2) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">07:40 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6167097169 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">07:40 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6168687319 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">07:40 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6169358683 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">07:50 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6169919108</strong> (Demand: 3) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">07:50 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6169919108 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">08:00 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6161290353</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">08:00 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6156674289</strong> (Demand: 2) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">08:00 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6168940043</strong> (Demand: 2) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">08:00 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6161290353 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">08:00 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6156674289 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">08:00 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6168940043 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">08:10 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6168584321</strong> (Demand: 2) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">08:10 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6158730663</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">08:10 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6169069021</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">08:10 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6168584321 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">08:10 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6158730663 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">08:10 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6169069021 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">08:20 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6169828720</strong> (Demand: 3) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">08:20 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6169828720 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">08:30 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6170217857</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">08:30 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6167842228</strong> (Demand: 2) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">08:30 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6170217857 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">08:30 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6167842228 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">08:50 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6159343792</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">08:50 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6164933438</strong> (Demand: 6) received for <strong>Sikandarpur</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">08:50 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6159343792 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">08:50 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6164933438 via <strong>Best Insertion</strong>. Dest: Sikandarpur</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6163227290</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:00 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6163227290 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:10 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6165256795</strong> (Demand: 1) received for <strong>My New Central Kitchen</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:10 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6165256795 via <strong>Best Insertion</strong>. Dest: My New Central Kitchen</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:20 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6169424336</strong> (Demand: 1) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:20 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6169424336 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:30 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6168428103</strong> (Demand: 2) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:30 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6169663570</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:30 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6168428103 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:30 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6169663570 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:40 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6168427326</strong> (Demand: 1) received for <strong>Swaad</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:40 PM</div>
+            <span class="event-type event-new-order">New Order</span>
+            <div class="event-details"><strong>Order #6169971633</strong> (Demand: 1) received for <strong>Aura Pizzas</strong></div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:40 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6168427326 via <strong>Best Insertion</strong>. Dest: Swaad</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">09:40 PM</div>
+            <span class="event-type event-assignment">Assignment</span>
+            <div class="event-details"><span style='color:green;'>✓ ASSIGNED (L1)</span> Order #6169971633 via <strong>Best Insertion</strong>. Dest: Aura Pizzas</div>
+        </div>
+        
+        <div class="timeline-event">
+            <div class="event-time">10:40:27 PM</div>
+            <span class="event-type event-optimization">Optimization</span>
+            <div class="event-details">[Parallel Opt.] Selected Layer 2 (OR-Tools). New Cost=43993.24. 0 orders pending.</div>
+        </div>
+        
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Route data from Python
+        const routesData = [{"vehicle_id": 5, "coordinates": [{"lat": 28.5707, "lng": 77.3262, "address": "My New Central Kitchen", "type": "depot", "index": 0}, {"lat": 29.5676468, "lng": 77.553344, "address": "Sikandarpur, Delhi NCR", "type": "stop", "index": 18}, {"lat": 28.5707, "lng": 77.3262, "address": "My New Central Kitchen", "type": "depot", "index": 0}], "color": "#28a745"}, {"vehicle_id": 6, "coordinates": [{"lat": 28.5707, "lng": 77.3262, "address": "My New Central Kitchen", "type": "depot", "index": 0}, {"lat": 28.4650453, "lng": 77.10071169999999, "address": "Swaad, DLF Phase 1, Delhi NCR", "type": "stop", "index": 19}, {"lat": 28.4650453, "lng": 77.10071169999999, "address": "Aura Pizzas, DLF Phase 1, Delhi NCR", "type": "stop", "index": 1}, {"lat": 28.549756, "lng": 77.2501151, "address": "Swaad, Greater Kailash 2 (GK2), Delhi NCR", "type": "stop", "index": 20}, {"lat": 28.5707, "lng": 77.3262, "address": "My New Central Kitchen", "type": "depot", "index": 0}], "color": "#ffc107"}, {"vehicle_id": 7, "coordinates": [{"lat": 28.5707, "lng": 77.3262, "address": "My New Central Kitchen", "type": "depot", "index": 0}, {"lat": 28.4650453, "lng": 77.10071169999999, "address": "Swaad, DLF Phase 1, Delhi NCR", "type": "stop", "index": 19}, {"lat": 28.4650453, "lng": 77.10071169999999, "address": "Aura Pizzas, DLF Phase 1, Delhi NCR", "type": "stop", "index": 1}, {"lat": 28.5707, "lng": 77.3262, "address": "My New Central Kitchen", "type": "depot", "index": 0}], "color": "#dc3545"}, {"vehicle_id": 8, "coordinates": [{"lat": 28.5707, "lng": 77.3262, "address": "My New Central Kitchen", "type": "depot", "index": 0}, {"lat": 28.5580188, "lng": 77.17871140000001, "address": "Aura Pizzas, Sector 4, Delhi NCR", "type": "stop", "index": 4}, {"lat": 28.4650453, "lng": 77.10071169999999, "address": "Aura Pizzas, DLF Phase 1, Delhi NCR", "type": "stop", "index": 1}, {"lat": 28.4650453, "lng": 77.10071169999999, "address": "Swaad, DLF Phase 1, Delhi NCR", "type": "stop", "index": 19}, {"lat": 28.5707, "lng": 77.3262, "address": "My New Central Kitchen", "type": "depot", "index": 0}], "color": "#667eea"}, {"vehicle_id": 9, "coordinates": [{"lat": 28.5707, "lng": 77.3262, "address": "My New Central Kitchen", "type": "depot", "index": 0}, {"lat": 28.549756, "lng": 77.2501151, "address": "Swaad, Greater Kailash 2 (GK2), Delhi NCR", "type": "stop", "index": 20}, {"lat": 28.53536, "lng": 77.2419522, "address": "Aura Pizzas, Greater Kailash 2 (GK2), Delhi NCR", "type": "stop", "index": 2}, {"lat": 28.5707, "lng": 77.3262, "address": "My New Central Kitchen", "type": "depot", "index": 0}], "color": "#28a745"}, {"vehicle_id": 10, "coordinates": [{"lat": 28.5707, "lng": 77.3262, "address": "My New Central Kitchen", "type": "depot", "index": 0}, {"lat": 28.4986092, "lng": 77.3999054, "address": "Swaad, Sector 135, Delhi NCR", "type": "stop", "index": 21}, {"lat": 28.4986092, "lng": 77.3999054, "address": "Aura Pizzas, Sector 135, Delhi NCR", "type": "stop", "index": 3}, {"lat": 28.5707, "lng": 77.3262, "address": "My New Central Kitchen", "type": "depot", "index": 0}], "color": "#ffc107"}, {"vehicle_id": 11, "coordinates": [{"lat": 28.5707, "lng": 77.3262, "address": "My New Central Kitchen", "type": "depot", "index": 0}, {"lat": 28.5707, "lng": 77.3262, "address": "My New Central Kitchen", "type": "stop", "index": 0}, {"lat": 28.4986092, "lng": 77.3999054, "address": "Aura Pizzas, Sector 135, Delhi NCR", "type": "stop", "index": 3}, {"lat": 28.5707, "lng": 77.3262, "address": "My New Central Kitchen", "type": "depot", "index": 0}], "color": "#dc3545"}];
+        const timeMatrix = [[0, 60, 27, 22, 31, 41, 26, 4575, 31, 27, 31, 31, 31, 26, 56, 22, 31, 36, 165, 60, 25, 22, 31, 29, 60, 23, 22, 65, 35, 25, 25, 25, 38], [59, 0, 42, 69, 34, 30, 41, 4637, 59, 42, 59, 59, 59, 40, 37, 69, 34, 65, 200, 0, 43, 69, 34, 63, 0, 50, 69, 27, 63, 60, 60, 60, 30], [28, 44, 0, 42, 18, 25, 5, 4584, 41, 0, 41, 41, 41, 3, 40, 42, 18, 47, 177, 44, 11, 42, 18, 39, 44, 19, 42, 50, 45, 35, 35, 35, 23], [20, 70, 39, 0, 44, 55, 36, 4572, 41, 39, 41, 41, 41, 37, 68, 1, 44, 47, 182, 70, 38, 1, 44, 39, 70, 35, 1, 76, 45, 36, 36, 36, 51], [35, 37, 18, 48, 0, 16, 18, 4588, 43, 18, 43, 43, 43, 17, 34, 48, 0, 50, 180, 37, 21, 48, 0, 43, 37, 28, 48, 44, 48, 39, 39, 39, 13], [42, 29, 24, 56, 17, 0, 24, 4596, 53, 24, 53, 53, 53, 23, 37, 56, 17, 58, 189, 29, 27, 56, 17, 51, 29, 34, 56, 42, 57, 46, 46, 46, 9], [30, 44, 5, 39, 18, 26, 0, 4583, 41, 5, 41, 41, 41, 5, 40, 39, 18, 46, 176, 44, 10, 39, 18, 39, 44, 18, 39, 50, 45, 35, 35, 35, 23], [4508, 4550, 4525, 99999, 4527, 4538, 4522, 0, 4526, 4525, 4526, 4526, 4526, 4523, 4548, 4499, 4527, 4531, 4678, 4550, 4523, 4499, 4527, 4524, 4550, 4520, 4499, 4565, 4530, 4523, 4523, 4523, 4534], [31, 67, 40, 43, 42, 53, 40, 4586, 0, 40, 0, 0, 0, 39, 60, 43, 42, 18, 151, 67, 40, 43, 42, 16, 67, 39, 43, 73, 16, 25, 25, 25, 50], [28, 44, 0, 42, 18, 25, 5, 4584, 41, 0, 41, 41, 41, 3, 40, 42, 18, 47, 177, 44, 11, 42, 18, 39, 44, 19, 42, 50, 45, 35, 35, 35, 23], [31, 67, 40, 43, 42, 53, 40, 4586, 0, 40, 0, 0, 0, 39, 60, 43, 42, 18, 151, 67, 40, 43, 42, 16, 67, 39, 43, 73, 16, 25, 25, 25, 50], [31, 67, 40, 43, 42, 53, 40, 4586, 0, 40, 0, 0, 0, 39, 60, 43, 42, 18, 151, 67, 40, 43, 42, 16, 67, 39, 43, 73, 16, 25, 25, 25, 50], [31, 67, 40, 43, 42, 53, 40, 4586, 0, 40, 0, 0, 0, 39, 60, 43, 42, 18, 151, 67, 40, 43, 42, 16, 67, 39, 43, 73, 16, 25, 25, 25, 50], [28, 44, 4, 41, 18, 25, 8, 4583, 41, 4, 41, 41, 41, 0, 40, 41, 18, 46, 176, 44, 12, 41, 18, 39, 44, 20, 41, 50, 45, 35, 35, 35, 23], [56, 37, 39, 68, 30, 36, 39, 4608, 57, 39, 57, 57, 57, 38, 0, 68, 30, 63, 182, 37, 42, 68, 30, 59, 37, 49, 68, 37, 62, 56, 56, 56, 30], [20, 70, 39, 1, 44, 55, 36, 4572, 41, 39, 41, 41, 41, 37, 68, 0, 44, 47, 182, 70, 38, 1, 44, 39, 70, 35, 1, 76, 45, 36, 36, 36, 51], [35, 37, 18, 48, 0, 16, 18, 4588, 43, 18, 43, 43, 43, 17, 34, 48, 0, 50, 180, 37, 21, 48, 0, 43, 37, 28, 48, 44, 48, 39, 39, 39, 13], [36, 71, 45, 48, 47, 58, 45, 4587, 16, 45, 16, 16, 16, 44, 66, 48, 47, 0, 156, 71, 46, 48, 47, 15, 71, 44, 48, 76, 4, 23, 23, 23, 56], [164, 187, 177, 177, 178, 188, 175, 4724, 148, 177, 148, 148, 148, 175, 173, 177, 178, 157, 0, 187, 177, 177, 178, 160, 187, 172, 177, 188, 161, 161, 161, 161, 185], [59, 0, 42, 69, 34, 30, 41, 4637, 59, 42, 59, 59, 59, 40, 37, 69, 34, 65, 200, 0, 43, 69, 34, 63, 0, 50, 69, 27, 63, 60, 60, 60, 30], [24, 45, 9, 36, 19, 27, 6, 4580, 37, 9, 37, 37, 37, 7, 41, 36, 19, 42, 171, 45, 0, 36, 19, 35, 45, 15, 36, 51, 40, 30, 30, 30, 24], [20, 70, 39, 1, 44, 55, 36, 4572, 41, 39, 41, 41, 41, 37, 68, 1, 44, 47, 182, 70, 38, 0, 44, 39, 70, 35, 1, 76, 45, 36, 36, 36, 51], [35, 37, 18, 48, 0, 16, 18, 4588, 43, 18, 43, 43, 43, 17, 34, 48, 0, 50, 180, 37, 21, 48, 0, 43, 37, 28, 48, 44, 48, 39, 39, 39, 13], [29, 69, 41, 41, 44, 55, 41, 4584, 17, 41, 17, 17, 17, 40, 64, 41, 44, 15, 166, 69, 41, 41, 44, 0, 69, 39, 41, 73, 13, 16, 16, 16, 52], [59, 0, 42, 69, 34, 30, 41, 4637, 59, 42, 59, 59, 59, 40, 37, 69, 34, 65, 200, 0, 43, 69, 34, 63, 0, 50, 69, 27, 63, 60, 60, 60, 30], [24, 55, 21, 33, 31, 39, 18, 4578, 41, 21, 41, 41, 41, 20, 54, 33, 31, 46, 176, 55, 21, 33, 31, 40, 55, 0, 33, 62, 45, 35, 35, 35, 37], [20, 70, 39, 1, 44, 55, 36, 4572, 41, 39, 41, 41, 41, 37, 68, 1, 44, 47, 182, 70, 38, 1, 44, 39, 70, 35, 0, 76, 45, 36, 36, 36, 51], [65, 25, 52, 75, 41, 41, 51, 4617, 66, 52, 66, 66, 66, 50, 37, 75, 41, 71, 198, 25, 54, 75, 41, 69, 25, 60, 75, 0, 71, 65, 65, 65, 36], [38, 72, 47, 50, 49, 60, 47, 4591, 18, 47, 18, 18, 18, 45, 67, 50, 49, 3, 158, 72, 47, 50, 49, 15, 72, 46, 50, 77, 0, 24, 24, 24, 58], [19, 61, 31, 32, 33, 43, 31, 4578, 20, 31, 20, 20, 20, 30, 55, 32, 33, 24, 159, 61, 32, 32, 33, 17, 61, 30, 32, 65, 22, 0, 0, 0, 42], [19, 61, 31, 32, 33, 43, 31, 4578, 20, 31, 20, 20, 20, 30, 55, 32, 33, 24, 159, 61, 32, 32, 33, 17, 61, 30, 32, 65, 22, 0, 0, 0, 42], [19, 61, 31, 32, 33, 43, 31, 4578, 20, 31, 20, 20, 20, 30, 55, 32, 33, 24, 159, 61, 32, 32, 33, 17, 61, 30, 32, 65, 22, 0, 0, 0, 42], [41, 32, 24, 56, 13, 7, 24, 4596, 51, 24, 51, 51, 51, 22, 31, 56, 13, 58, 188, 32, 27, 56, 13, 50, 32, 33, 56, 37, 54, 47, 47, 47, 0]];
+        
+        let map;
+        let directionsService;
+        let directionsRenderers = [];
+        let markers = [];
+        let activeRoutes = new Set();
+        let selectedMarkers = [];
+        let mapMarkers = {};
+        let highlightRenderer = null;
+        let activeHighlightVehicle = null;
+        let selectedStopIndices = [];
+        
+        // Collapsible sections state
+        let sectionStates = {
+            'historical-log-section': false,
+            'fleet-status-section': false,
+            'timeline-section': false
+        };
+        
+        function initMap() {
+            const depotLocation = routesData.length > 0 && routesData[0].coordinates.length > 0
+                ? { lat: routesData[0].coordinates[0].lat, lng: routesData[0].coordinates[0].lng }
+                : { lat: 22.7196, lng: 75.8577 }; // Default
+            
+            map = new google.maps.Map(document.getElementById('map'), {
+                zoom: 12, center: depotLocation, mapTypeControl: true,
+                streetViewControl: false, fullscreenControl: true
+            });
+            
+            directionsService = new google.maps.DirectionsService();
+
+            routesData.forEach(route => { mapMarkers[route.vehicle_id] = []; });
+            
+            const toggleContainer = document.getElementById('vehicleToggles');
+            routesData.forEach((route, idx) => {
+                const button = document.createElement('button');
+                button.className = 'vehicle-toggle active';
+                button.textContent = `Vehicle ${route.vehicle_id}`;
+                button.style.borderColor = route.color;
+                button.onclick = () => toggleRoute(route.vehicle_id, button);
+                toggleContainer.appendChild(button);
+                activeRoutes.add(route.vehicle_id);
+            });
+            
+            routesData.forEach(route => { displayRoute(route); });
+        }
+        
+        function toggleRoute(vehicleId, button) {
+            if (activeRoutes.has(vehicleId)) {
+                activeRoutes.delete(vehicleId);
+                button.classList.remove('active');
+            } else {
+                activeRoutes.add(vehicleId);
+                button.classList.add('active');
+            }
+            clearMap();
+            routesData.forEach(route => {
+                if (activeRoutes.has(route.vehicle_id)) { displayRoute(route); }
+            });
+        }
+        
+        function displayRoute(routeData) {
+            const coords = routeData.coordinates;
+            if (coords.length < 2) return;
+            
+            const origin = { lat: coords[0].lat, lng: coords[0].lng };
+            const destination = { lat: coords[coords.length - 1].lat, lng: coords[coords.length - 1].lng };
+            const waypoints = coords.slice(1, -1).map(coord => ({
+                location: { lat: coord.lat, lng: coord.lng }, stopover: true
+            }));
+            
+            const directionsRenderer = new google.maps.DirectionsRenderer({
+                map: map, suppressMarkers: true,
+                polylineOptions: {
+                    strokeColor: routeData.color, strokeWeight: 5, strokeOpacity: 0.7
+                }
+            });
+            
+            const request = {
+                origin: origin, destination: destination, waypoints: waypoints,
+                travelMode: google.maps.TravelMode.DRIVING, optimizeWaypoints: false
+            };
+            
+            directionsService.route(request, (result, status) => {
+                if (status === 'OK') {
+                    directionsRenderer.setDirections(result);
+                } else {
+                    console.error('Directions request failed:', status);
+                    drawSimplePolyline(coords, routeData.color);
+                }
+            });
+            
+            directionsRenderers.push(directionsRenderer);
+            
+            coords.forEach((coord, idx) => {
+                const isDepot = coord.type === 'depot';
+                const markerIcon = {
+                    path: isDepot ? google.maps.SymbolPath.FORWARD_CLOSED_ARROW : google.maps.SymbolPath.CIRCLE,
+                    rotation: isDepot ? -90 : 0,
+                    fillColor: isDepot ? '#dc3545' : routeData.color,
+                    fillOpacity: 1, strokeColor: 'white', strokeWeight: 2.5,
+                    scale: isDepot ? 9 : 10
+                };
+                const marker = new google.maps.Marker({
+                    position: { lat: coord.lat, lng: coord.lng }, map: map,
+                    title: coord.address, icon: markerIcon,
+                    label: {
+                        text: isDepot ? 'D' : (idx).toString(),
+                        color: 'white', fontSize: '11px', fontWeight: 'bold'
+                    }
+                });
+                
+                mapMarkers[routeData.vehicle_id][idx] = { marker, coord };
+
+                const infoWindow = new google.maps.InfoWindow({
+                    content: `<div style="padding: 10px;">
+                            <strong>${isDepot ? 'Depot' : 'Stop ' + idx}</strong><br>
+                            ${coord.address}<br>
+                            <small>Vehicle ${routeData.vehicle_id}</small>
+                        </div>`
+                });
+                
+                marker.addListener('click', () => {
+                    infoWindow.open(map, marker);
+                    handleMarkerClick(marker, coord, routeData);
+                });
+                markers.push({ marker, coord, routeData });
+            });
+        }
+        
+        function drawSimplePolyline(coords, color) {
+            const path = coords.map(c => ({ lat: c.lat, lng: c.lng }));
+            const polyline = new google.maps.Polyline({
+                path: path, strokeColor: color, strokeWeight: 4,
+                strokeOpacity: 0.7, map: map
+            });
+        }
+        
+        function handleMarkerClick(marker, coord, routeData) {
+            if (selectedMarkers.length === 2) { selectedMarkers = []; }
+            selectedMarkers.push({ marker, coord, routeData });
+            if (selectedMarkers.length === 2) { calculateSegmentInfo(); }
+        }
+        
+        function calculateSegmentInfo() {
+            const [first, second] = selectedMarkers;
+            if (first.routeData.vehicle_id !== second.routeData.vehicle_id) {
+                document.getElementById('segmentDescription').textContent = 
+                    'Please select two stops from the same vehicle route.';
+                return;
+            }
+            const route = first.routeData.coordinates;
+            const firstIdx = route.findIndex(c => c.lat === first.coord.lat && c.lng === first.coord.lng);
+            const secondIdx = route.findIndex(c => c.lat === second.coord.lat && c.lng === second.coord.lng);
+            if (firstIdx === -1 || secondIdx === -1) return;
+            
+            const travelTime = timeMatrix[first.coord.index][second.coord.index];
+            const distance = calculateDistance(
+                first.coord.lat, first.coord.lng, second.coord.lat, second.coord.lng
+            );
+            
+            const distanceInfo = document.getElementById('distanceInfo');
+            const distanceDetails = document.getElementById('distanceDetails');
+            document.getElementById('segmentDescription').textContent = 
+                `Route segment from ${first.coord.address.split(',')[0]} to ${second.coord.address.split(',')[0]}`;
+            
+            distanceDetails.innerHTML = `
+                <div class="distance-detail">
+                    <div class="distance-label">Travel Time</div>
+                    <div class="distance-value">${travelTime.toFixed(1)} min</div>
+                </div>
+                <div class="distance-detail">
+                    <div class="distance-label">Distance</div>
+                    <div class="distance-value">${distance.toFixed(1)} km</div>
+                </div>
+                <div class="distance-detail">
+                    <div class="distance-label">Vehicle</div>
+                    <div class="distance-value">${first.routeData.vehicle_id}</div>
+                </div>
+                <div class="distance-detail">
+                    <div class="distance-label">Avg Speed</div>
+                    <div class="distance-value">${(distance / (travelTime / 60)).toFixed(1)} km/h</div>
+                </div>
+            `;
+            distanceInfo.classList.add('active');
+        }
+        
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371; // km
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                    Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+        
+        function clearMap() {
+            directionsRenderers.forEach(renderer => renderer.setMap(null));
+            markers.forEach(m => m.marker.setMap(null));
+            directionsRenderers = []; markers = []; selectedMarkers = [];
+            document.getElementById('distanceInfo').classList.remove('active');
+        }
+
+        function highlightStop(element, vehicleId, routeIndex) {
+            if (vehicleId !== activeHighlightVehicle) {
+                document.querySelectorAll('.route-stop.highlighted').forEach(el => {
+                    el.classList.remove('highlighted');
+                });
+                selectedStopIndices = [];
+                activeHighlightVehicle = vehicleId;
+            }
+            const selectionIndex = selectedStopIndices.indexOf(routeIndex);
+            if (selectionIndex > -1) {
+                selectedStopIndices.splice(selectionIndex, 1);
+                element.classList.remove('highlighted');
+            } else {
+                selectedStopIndices.push(routeIndex);
+                element.classList.add('highlighted');
+            }
+            updateHighlightPath();
+        }
+
+        function updateHighlightPath() {
+            if (highlightRenderer) {
+                highlightRenderer.setMap(null); highlightRenderer = null;
+            }
+            for (const vId in mapMarkers) {
+                mapMarkers[vId].forEach(m => m.marker.setAnimation(null));
+            }
+            if (selectedStopIndices.length === 0 || activeHighlightVehicle === null) return;
+
+            selectedStopIndices.forEach(idx => {
+                if (mapMarkers[activeHighlightVehicle] && mapMarkers[activeHighlightVehicle][idx]) {
+                    mapMarkers[activeHighlightVehicle][idx].marker.setAnimation(google.maps.Animation.BOUNCE);
+                }
+            });
+
+            const routeData = routesData.find(r => r.vehicle_id === activeHighlightVehicle);
+            if (!routeData) return;
+            const lastStopIndex = Math.max(...selectedStopIndices);
+            const highlightCoords = routeData.coordinates.slice(0, lastStopIndex + 1);
+            if (highlightCoords.length < 2) return;
+
+            const origin = { lat: highlightCoords[0].lat, lng: highlightCoords[0].lng };
+            const destination = { lat: highlightCoords[highlightCoords.length - 1].lat, lng: highlightCoords[highlightCoords.length - 1].lng };
+            const waypoints = highlightCoords.slice(1, -1).map(c => ({
+                location: { lat: c.lat, lng: c.lng }, stopover: true
+            }));
+            
+            highlightRenderer = new google.maps.DirectionsRenderer({
+                map: map, suppressMarkers: true, preserveViewport: true,
+                polylineOptions: {
+                    strokeColor: '#e74c3c', strokeWeight: 8,
+                    strokeOpacity: 0.9, zIndex: 99
+                }
+            });
+
+            const request = {
+                origin: origin, destination: destination, waypoints: waypoints,
+                travelMode: google.maps.TravelMode.DRIVING, optimizeWaypoints: false
+            };
+
+            directionsService.route(request, (result, status) => {
+                if (status === 'OK') { highlightRenderer.setDirections(result); }
+            });
+        }
+        
+        // Collapsible sections functionality
+        function toggleSection(sectionId) {
+            const section = document.getElementById(sectionId);
+            const content = document.getElementById(sectionId.replace('-section', '-content'));
+            const icon = section.querySelector('.collapsible-icon');
+            const isExpanded = sectionStates[sectionId];
+            
+            if (isExpanded) {
+                // Collapse
+                content.classList.remove('expanded');
+                content.classList.add('collapsed');
+                icon.classList.remove('expanded');
+                sectionStates[sectionId] = false;
+            } else {
+                // Expand
+                content.classList.remove('collapsed');
+                content.classList.add('expanded');
+                icon.classList.add('expanded');
+                sectionStates[sectionId] = true;
+            }
+        }
+        
+        function expandAllSections() {
+            Object.keys(sectionStates).forEach(sectionId => {
+                if (!sectionStates[sectionId]) {
+                    toggleSection(sectionId);
+                }
+            });
+        }
+        
+        function collapseAllSections() {
+            Object.keys(sectionStates).forEach(sectionId => {
+                if (sectionStates[sectionId]) {
+                    toggleSection(sectionId);
+                }
+            });
+        }
+        
+        function toggleAllSections() {
+            const allExpanded = Object.values(sectionStates).every(state => state);
+            if (allExpanded) {
+                collapseAllSections();
+            } else {
+                expandAllSections();
+            }
+        }
+        
+        // Initialize sections as collapsed on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            Object.keys(sectionStates).forEach(sectionId => {
+                const content = document.getElementById(sectionId.replace('-section', '-content'));
+                if (content) {
+                    content.classList.add('collapsed');
+                }
+            });
+        });
+    </script>
+    
+    <script async defer
+        src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC_hI6BowrJPojeBiRldmuFVf3aqsSRZbg&callback=initMap">
+    </script>
+</body>
+</html>
