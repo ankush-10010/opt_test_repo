@@ -2,8 +2,26 @@ import copy
 import random
 from collections import deque
 from optimization_solver_layers import solve_vrp_with_capacity # We import our new engine
-
+import math
+import time
 # --- Helper Function ---
+
+# --- ALNS Parameters (can be tuned) ---
+ALNS_ITERATIONS = 5000     # How many iterations to run
+ALNS_SEGMENT_LENGTH = 50   # How often to update operator weights
+ALNS_REACTION_FACTOR = 0.7 # How much new scores influence weights (0 to 1)
+# Acceptance criteria (Simulated Annealing based)
+ALNS_TEMP_START = 1000
+ALNS_TEMP_END = 1
+ALNS_COOLING_RATE = 0.995 # T_new = T_old * cooling_rate
+# Destroy control (% of orders to remove)
+ALNS_DESTROY_MIN_PERCENT = 0.15
+ALNS_DESTROY_MAX_PERCENT = 0.40
+# Operator Scores
+ALNS_SIGMA1 = 1 # Score for finding new global best  10
+ALNS_SIGMA2 = 1  # Score for finding solution better than current 5
+ALNS_SIGMA3 = 1  # Score for accepting worse solution (exploration) 2
+
 
 def calculate_raw_route_distance(stop_indices, distance_matrix):
     """
@@ -32,6 +50,33 @@ def calculate_raw_route_distance(stop_indices, distance_matrix):
     total_distance += distance_matrix[last_idx][0]
     return total_distance
 
+def calculate_raw_route_time(stop_indices, time_matrix):
+    """
+    Calculates the total travel time (in seconds) for a list of stop indices.
+    Assumes depot is start (0) and end (0).
+    e.g., [5, 3] -> time(0,5) + time(5,3) + time(3,0)
+    """
+    if not stop_indices:
+        return 0
+    
+    total_time = 0
+    last_idx = 0 # Start at depot
+    
+    for stop_idx in stop_indices:
+        # --- Basic Bounds Check ---
+        if last_idx >= len(time_matrix) or stop_idx >= len(time_matrix[last_idx]):
+             print(f"Error: Index out of bounds in time_matrix access ({last_idx}, {stop_idx})")
+             return float('inf') # Return infinity on error
+        total_time += time_matrix[last_idx][stop_idx]
+        last_idx = stop_idx
+        
+    # Return to depot
+    if last_idx >= len(time_matrix) or 0 >= len(time_matrix[last_idx]):
+        print(f"Error: Index out of bounds returning to depot ({last_idx}, 0)")
+        return float('inf')
+        
+    total_time += time_matrix[last_idx][0]
+    return total_time
 # --- Main Cost Calculation Functions ---
 def calculate_total_fleet_cost(routes_dict, distance_matrix, 
                                fixed_cost_per_truck, variable_cost_per_km):
@@ -283,6 +328,21 @@ def _tabu_search_capacity(initial_solution, time_matrix,
                 
     return best_solution
 
+# --- ALNS Helper: Roulette Wheel Selection ---
+def _roulette_wheel_selection(weights):
+    total_weight = sum(weights)
+    if total_weight == 0:
+        # Fallback if all weights somehow become zero
+        return random.randrange(len(weights))
+    
+    pick = random.uniform(0, total_weight)
+    current = 0
+    for i, weight in enumerate(weights):
+        current += weight
+        if current > pick:
+            return i
+    # Should not happen if total_weight > 0, but as a fallback:
+    return len(weights) - 1
 # --- NEW MAIN L1 Function ---
 def assign_new_order_realtime(new_order, current_routes, time_matrix, 
                             vehicle_capacity, max_route_duration_mins):
@@ -321,8 +381,129 @@ def assign_new_order_realtime(new_order, current_routes, time_matrix,
     
     # If tabu failed or wasn't better, return the greedy one
     return greedy_solution, method # "Best Insertion" or "New Vehicle"
-    
 
+# --- ALNS Repair Operators ---
+def _repair_greedy(partial_solution_routes, request_bank, time_matrix, distance_matrix,
+                   vehicle_capacity, max_route_duration_mins, num_vehicles):
+    """
+    Reinserts orders from request_bank into partial_solution using best insertion heuristic.
+    Returns: repaired_solution_routes, uninserted_orders
+    """
+    repaired_solution = copy.deepcopy(partial_solution_routes)
+    uninserted_orders = []
+    
+    # Optional: Shuffle request bank to avoid bias
+    random.shuffle(request_bank)
+    
+    for order in request_bank:
+        best_cost_increase = float('inf')
+        best_insertion_vehicle = -1
+        best_insertion_index = -1
+        insertion_found = False
+
+        new_order_demand = order['demand']
+
+        # Try inserting into existing routes
+        for v_id, route_orders in repaired_solution.items():
+            current_load = sum(o['demand'] for o in route_orders)
+
+            # --- Constraint 1: Check Capacity ---
+            if current_load + new_order_demand > vehicle_capacity:
+                continue
+
+            # Calculate original route time cost (only needed if route is not empty)
+            original_cost_seconds = 0
+            if route_orders:
+                 original_stop_indices = list(dict.fromkeys([o['index'] for o in route_orders]))
+                 original_cost_seconds = calculate_raw_route_time(original_stop_indices, time_matrix)
+
+            # Try inserting at every position
+            for i in range(len(route_orders) + 1):
+                temp_route_orders = route_orders[:i] + [order] + route_orders[i:]
+                new_unique_stops = list(dict.fromkeys([o['index'] for o in temp_route_orders]))
+                new_cost_seconds = calculate_raw_route_time(new_unique_stops, time_matrix)
+                new_duration_minutes = new_cost_seconds / 60.0
+
+                # --- Constraint 2: Check Duration ---
+                if new_duration_minutes > max_route_duration_mins:
+                    continue
+
+                cost_increase = new_cost_seconds - original_cost_seconds
+
+                if cost_increase < best_cost_increase:
+                    best_cost_increase = cost_increase
+                    best_insertion_vehicle = v_id
+                    best_insertion_index = i
+                    insertion_found = True
+
+        # If insertion found, apply it
+        if insertion_found:
+            repaired_solution[best_insertion_vehicle].insert(best_insertion_index, order)
+        else:
+            # Try starting a new route on an empty vehicle
+            cost_of_new_route_sec = calculate_raw_route_time([order['index']], time_matrix)
+            duration_mins = cost_of_new_route_sec / 60.0
+            
+            can_start_new_route = False
+            if (new_order_demand <= vehicle_capacity) and (duration_mins <= max_route_duration_mins):
+                # Find the first empty vehicle
+                for v_id in range(num_vehicles):
+                    if v_id not in repaired_solution or not repaired_solution[v_id]:
+                        if v_id not in repaired_solution: # Ensure key exists
+                             repaired_solution[v_id] = []
+                        repaired_solution[v_id].append(order)
+                        can_start_new_route = True
+                        break # Stop after finding one empty vehicle
+            
+            if not can_start_new_route:
+                 uninserted_orders.append(order) # Could not insert this order
+
+    return repaired_solution, uninserted_orders
+
+# --- ALNS Destroy Operators ---
+def _destroy_random(solution_routes, num_to_remove):
+    """
+    Removes num_to_remove randomly selected orders from the solution.
+    Returns: partial_solution_routes, request_bank (list of removed order objects)
+    """
+    partial_solution = copy.deepcopy(solution_routes)
+    request_bank = []
+    
+    # Create a flat list of all assigned (vehicle_id, order_index_in_route, order_object)
+    assigned_orders_info = []
+    for v_id, route in partial_solution.items():
+        for idx, order in enumerate(route):
+            assigned_orders_info.append({'v_id': v_id, 'idx': idx, 'order': order})
+
+    if not assigned_orders_info:
+        return partial_solution, [] # Nothing to remove
+
+    # Determine actual number to remove (don't exceed available orders)
+    actual_num_to_remove = min(num_to_remove, len(assigned_orders_info))
+    if actual_num_to_remove <= 0:
+         return partial_solution, []
+
+    # Shuffle and select orders to remove
+    random.shuffle(assigned_orders_info)
+    orders_to_remove_info = assigned_orders_info[:actual_num_to_remove]
+    
+    # Store removed orders and create a quick lookup for removal
+    removed_lookup = {} # Key: v_id, Value: list of indices to remove (sorted desc)
+    for info in orders_to_remove_info:
+        request_bank.append(info['order'])
+        v_id = info['v_id']
+        if v_id not in removed_lookup:
+            removed_lookup[v_id] = []
+        removed_lookup[v_id].append(info['idx'])
+
+    # Remove orders efficiently (by index, descending to avoid shifting issues)
+    for v_id, indices in removed_lookup.items():
+        indices.sort(reverse=True) # Sort descending
+        route = partial_solution[v_id]
+        for idx in indices:
+            del route[idx] # Remove by index
+
+    return partial_solution, request_bank
 # --- Main Function 3: Layer 2 (Batch VRP Optimization) ---
 
 def batch_optimization_vrp(current_routes, pending_orders, time_matrix, 
@@ -449,39 +630,176 @@ def batch_optimization_vrp(current_routes, pending_orders, time_matrix,
 
     return new_optimized_routes, final_unassigned_orders_deduped
 
-# --- Placeholder for Layer 3: ALNS ---
 
-def run_alns_optimization(current_routes, pending_orders, time_matrix, distance_matrix,
+# --- Main ALNS Function ---
+def run_alns_optimization(current_routes_input, pending_orders_input, time_matrix, distance_matrix,
                           num_vehicles, vehicle_capacity, max_route_duration_mins,
-                          # Add any ALNS specific parameters here, e.g., iterations
-                          alns_iterations=100):
+                          fixed_cost_per_truck, variable_cost_per_km, # Add cost params
+                          alns_iterations=ALNS_ITERATIONS):
     """
-    Placeholder for the ALNS optimization algorithm.
-    It should take the current state and return optimized routes and unassigned orders.
-    
-    !!! IMPORTANT: Replace this with your actual ALNS implementation !!!
+    Performs Adaptive Large Neighborhood Search (ALNS) to optimize routes.
+    Starts with the provided routes/pending orders and tries to improve them.
+    Returns the best solution found (routes_dict, unassigned_orders_list).
     """
-    print("--- [LAYER 3 ALNS] Starting optimization (Placeholder)... ---")
-    
-    # --- Start of Placeholder Logic ---
-    # For now, let's simulate it by just calling the OR-Tools solver again.
-    # Replace this section entirely with your ALNS code.
-    
-    # Combine orders like batch_optimization_vrp does
-    all_orders_to_assign = pending_orders[:]
-    for route in current_routes.values():
-        all_orders_to_assign.extend(route)
-        
-    if not all_orders_to_assign:
-        return {i: [] for i in range(num_vehicles)}, []
+    print(f"--- [LAYER 3 ALNS] Starting optimization for {alns_iterations} iterations... ---")
+    start_time_alns = time.time()
 
-    # Call the OR-Tools solver logic (or your ALNS implementation)
-    # Using the same logic as batch_optimization_vrp for now
-    optimized_routes, unassigned_orders = batch_optimization_vrp(
-         current_routes, pending_orders, time_matrix, num_vehicles,
-         vehicle_capacity, max_route_duration_mins
+    # --- Initialize ---
+    # Combine all orders into one pool for the initial insertion attempt
+    initial_pending = pending_orders_input[:]
+    initial_routes = copy.deepcopy(current_routes_input)
+    for route in initial_routes.values():
+        initial_pending.extend(route)
+    
+    # Try a simple initial solution: Greedily insert all pending orders
+    # Start with empty routes
+    initial_solution_routes = {v_id: [] for v_id in range(num_vehicles)}
+    initial_solution_routes, initial_unassigned = _repair_greedy(
+        initial_solution_routes, initial_pending, time_matrix, distance_matrix,
+        vehicle_capacity, max_route_duration_mins, num_vehicles
     )
-    # --- End of Placeholder Logic ---
+    
+    # If initial greedy insert fails badly, fall back to input routes + try inserting pending
+    if len(initial_unassigned) > len(pending_orders_input):
+         print("--- [LAYER 3 ALNS] Initial greedy insertion performed poorly, starting from input routes... ---")
+         initial_solution_routes = copy.deepcopy(current_routes_input)
+         initial_solution_routes, initial_unassigned = _repair_greedy(
+             initial_solution_routes, pending_orders_input[:], time_matrix, distance_matrix,
+             vehicle_capacity, max_route_duration_mins, num_vehicles
+        )
 
-    print(f"--- [LAYER 3 ALNS] Optimization complete (Placeholder). Found {len(unassigned_orders)} unassigned orders. ---")
-    return optimized_routes, unassigned_orders
+    print(f"--- [LAYER 3 ALNS] Initial solution created with {len(initial_unassigned)} unassigned orders. ---")
+
+    current_solution_routes = initial_solution_routes
+    current_unassigned = initial_unassigned
+    current_cost, _, _ = calculate_total_fleet_cost(current_solution_routes, distance_matrix, fixed_cost_per_truck, variable_cost_per_km)
+    # Add penalty for unassigned orders to guide the search
+    current_objective = current_cost + (len(current_unassigned) * fixed_cost_per_truck * 10) # Heavy penalty
+
+    best_solution_routes = current_solution_routes
+    best_unassigned = current_unassigned
+    best_cost = current_cost
+    best_objective = current_objective
+
+    # --- Operators ---
+    # For now, only one of each. Extend these lists later.
+    destroy_operators = [_destroy_random]
+    repair_operators = [_repair_greedy]
+    
+    # --- Operator Weights & Scores ---
+    destroy_weights = [1.0] * len(destroy_operators)
+    repair_weights = [1.0] * len(repair_operators)
+    destroy_scores = [0.0] * len(destroy_operators)
+    repair_scores = [0.0] * len(repair_operators)
+    destroy_counts = [0] * len(destroy_operators)
+    repair_counts = [0] * len(repair_operators)
+
+    # --- Temperature for Acceptance ---
+    temperature = ALNS_TEMP_START
+
+    # --- ALNS Main Loop ---
+    for i in range(alns_iterations):
+        
+        # --- 1. Select Operators ---
+        destroy_op_idx = _roulette_wheel_selection(destroy_weights)
+        repair_op_idx = _roulette_wheel_selection(repair_weights)
+        destroy_op = destroy_operators[destroy_op_idx]
+        repair_op = repair_operators[repair_op_idx]
+        
+        destroy_counts[destroy_op_idx] += 1
+        repair_counts[repair_op_idx] += 1
+
+        # --- 2. Destroy ---
+        # Determine how many orders to remove
+        total_assigned_now = sum(len(r) for r in current_solution_routes.values())
+        if total_assigned_now == 0: continue # Skip if no orders are assigned
+
+        destroy_percent = random.uniform(ALNS_DESTROY_MIN_PERCENT, ALNS_DESTROY_MAX_PERCENT)
+        num_to_remove = max(1, int(total_assigned_now * destroy_percent))
+
+        partial_routes, request_bank = destroy_op(current_solution_routes, num_to_remove)
+        
+        # Add any currently unassigned orders to the request bank too
+        request_bank.extend(current_unassigned)
+        
+        if not request_bank: continue # Nothing to repair
+
+        # --- 3. Repair ---
+        new_solution_routes, new_unassigned = repair_op(
+            partial_routes, request_bank, time_matrix, distance_matrix,
+            vehicle_capacity, max_route_duration_mins, num_vehicles
+        )
+
+        # --- 4. Evaluate New Solution ---
+        new_cost, _, _ = calculate_total_fleet_cost(new_solution_routes, distance_matrix, fixed_cost_per_truck, variable_cost_per_km)
+        new_objective = new_cost + (len(new_unassigned) * fixed_cost_per_truck * 10) # Apply penalty
+
+        # --- 5. Acceptance Criterion ---
+        accepted = False
+        score_update = 0
+        
+        delta_objective = new_objective - current_objective
+
+        if delta_objective < 0:
+            # Improvement found
+            current_solution_routes = new_solution_routes
+            current_unassigned = new_unassigned
+            current_objective = new_objective
+            accepted = True
+            
+            if new_objective < best_objective:
+                # New global best found
+                best_solution_routes = copy.deepcopy(new_solution_routes) # Deep copy best
+                best_unassigned = new_unassigned[:]
+                best_objective = new_objective
+                best_cost = new_cost # Store the actual cost without penalty
+                score_update = ALNS_SIGMA1
+                # print(f"Iter {i}: New best found! Cost={best_cost:.2f}, Unassigned={len(best_unassigned)}") # Optional: Log improvements
+            else:
+                score_update = ALNS_SIGMA2
+        elif temperature > ALNS_TEMP_END:
+            # Acceptance probability for worse solutions (Simulated Annealing)
+            acceptance_prob = math.exp(-delta_objective / temperature)
+            if random.random() < acceptance_prob:
+                current_solution_routes = new_solution_routes
+                current_unassigned = new_unassigned
+                current_objective = new_objective
+                accepted = True
+                score_update = ALNS_SIGMA3
+
+        # --- 6. Update Operator Scores ---
+        if accepted:
+             destroy_scores[destroy_op_idx] += score_update
+             repair_scores[repair_op_idx] += score_update
+
+        # --- 7. Update Temperature ---
+        temperature *= ALNS_COOLING_RATE
+
+        # --- 8. Update Operator Weights Periodically ---
+        if (i + 1) % ALNS_SEGMENT_LENGTH == 0:
+            for op_idx in range(len(destroy_operators)):
+                if destroy_counts[op_idx] > 0:
+                     avg_score = destroy_scores[op_idx] / destroy_counts[op_idx]
+                     destroy_weights[op_idx] = (1 - ALNS_REACTION_FACTOR) * destroy_weights[op_idx] + \
+                                               ALNS_REACTION_FACTOR * avg_score
+                # Reset scores/counts for next segment
+                destroy_scores[op_idx] = 0.0
+                destroy_counts[op_idx] = 0
+                
+            for op_idx in range(len(repair_operators)):
+                if repair_counts[op_idx] > 0:
+                     avg_score = repair_scores[op_idx] / repair_counts[op_idx]
+                     repair_weights[op_idx] = (1 - ALNS_REACTION_FACTOR) * repair_weights[op_idx] + \
+                                              ALNS_REACTION_FACTOR * avg_score
+                # Reset scores/counts
+                repair_scores[op_idx] = 0.0
+                repair_counts[op_idx] = 0
+            # print(f"Iter {i}: Updated operator weights. D:{destroy_weights}, R:{repair_weights}") # Optional debug
+
+    # --- End of ALNS Loop ---
+    end_time_alns = time.time()
+    print(f"--- [LAYER 3 ALNS] Finished {alns_iterations} iterations in {end_time_alns - start_time_alns:.2f} seconds. ---")
+    print(f"--- [LAYER 3 ALNS] Best solution found: Cost={best_cost:.2f}, Unassigned={len(best_unassigned)} ---")
+
+    # Return the best solution found during the search
+    return best_solution_routes, best_unassigned

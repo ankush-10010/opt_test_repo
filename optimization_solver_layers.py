@@ -319,4 +319,3 @@ def get_solution_for_restaurant(restaurant_name):
         return processed_solution, locations
 
     return None, None
-
