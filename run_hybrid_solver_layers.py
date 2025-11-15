@@ -4,7 +4,6 @@ import json
 import threading
 import pandas as pd
 from datetime import datetime, timedelta
-# We will import the new functions from our updated solver
 from hybrid_solver_layers import (
     assign_new_order_realtime, 
     calculate_route_cost, 
@@ -16,47 +15,41 @@ from hybrid_solver_layers import (
 random.seed(42)
 
 # --- Configuration ---
-SIMULATION_START_HOUR = 9  # 9:00 AM
-SIMULATION_END_HOUR = 22 # 10:00 PM (to catch more orders)
-MINUTES_PER_TICK = 10      # Check for new orders every 10 minutes
-NUM_VEHICLES = 12
-TIME_MATRIX_FILE = 'matrix_data_with_distance.json' # Or 'time_matrix_custom.json'
+SIMULATION_START_HOUR = 9
+SIMULATION_END_HOUR = 22
+MINUTES_PER_TICK = 10
+NUM_VEHICLES = 8
+TIME_MATRIX_FILE = 'matrix_data_with_distance.json'
 
-# --- NEW: Capacity & Real Order Data ---
-VEHICLE_CAPACITY = 20         # Max number of "units" per vehicle
-MAX_ROUTE_DURATION_MINS = 200 # Max drive time
+VEHICLE_CAPACITY = 20
+MAX_ROUTE_DURATION_MINS = 200
 PREPROCESSED_ORDER_FILE = 'preprocessed_orders.csv'
-# --- Select the day you want to simulate ---
-# (From your data, Sept 10 2024 is day 254)
-SIMULATION_DAY_OF_YEAR = 254 
+SIMULATION_DAY_OF_YEAR = 254
 
-# --- Other Settings ---
-LAYER_2_INTERVAL_SECONDS = 60 # Run background re-optimization every 60s
+LAYER_2_INTERVAL_SECONDS = 60
 OUTPUT_HTML_FILE = 'outputs/hybrid_simulation_live_capacity.html'
 
-# --- Cost Parameters ---
-FIXED_COST_PER_TRUCK = 5000  # Example cost (e.g., rupees per day)
-VARIABLE_COST_PER_KM = 15   # Example cost (e.g., rupees per km for fuel, maintenance)
+FIXED_COST_PER_TRUCK = 5000
+VARIABLE_COST_PER_KM = 15
 
-# --- Distance Matrix (Crucial for Cost Calculation) ---
-# We assume you have or can generate a distance matrix similar to your time matrix.
-# If not, you'll need to calculate distances (e.g., using Haversine formula on lat/lon).
-DISTANCE_MATRIX_FILE = 'distance_matrix.json' # Or load from the same file if combined
-distance_matrix = [] # This will be loaded
-
+DISTANCE_MATRIX_FILE = 'distance_matrix.json'
+distance_matrix = []
 
 # --- Shared State ---
-# current_routes holds a list of full order objects for each vehicle
-# { 0: [order_obj_1, order_obj_2], 1: [order_obj_3], ... }
-current_routes = {} 
-pending_orders = [] # [order_obj_4, order_obj_5, ...]
+current_routes = {}
+pending_orders = []
 state_lock = threading.Lock()
 simulation_running = True
 simulation_events = []
 all_locations = []
 time_matrix = []
-global_order_assignments_log = [] # <--- ADD THIS NEW LOG
-simulation_start_time = None # For real-time sync
+global_order_assignments_log = []
+simulation_start_time = None
+
+# NEW: Additional metrics tracking
+optimization_performance_log = []  # Track each optimization cycle performance
+vehicle_utilization_history = []  # Track vehicle usage over time
+order_wait_times = {}  # Track how long orders waited before assignment
 
 # --- HTML Generation Functions ---
 def format_time(minutes_from_start):
@@ -72,22 +65,19 @@ def generate_route_coordinates(route_orders, locations):
         return []
         
     sample_loc = locations[0]
-    lat_key, lng_key = ('latitude', 'longitude') # From geocoded_locations
-    if 'lat' in sample_loc: # From other sources
+    lat_key, lng_key = ('latitude', 'longitude')
+    if 'lat' in sample_loc:
         lat_key, lng_key = 'lat', 'lng'
     
-    # Add depot at start
     coords.append({
         'lat': locations[0][lat_key], 'lng': locations[0][lng_key],
         'address': locations[0]['original_address'], 'type': 'depot', 'index': 0
     })
     
-    # Get unique stops from the list of orders
     stop_indices = []
     if route_orders:
         stop_indices = list(dict.fromkeys([order['index'] for order in route_orders]))
 
-    # Add all stops
     for idx in stop_indices:
         if idx < len(locations):
             coords.append({
@@ -97,36 +87,26 @@ def generate_route_coordinates(route_orders, locations):
         else:
             print(f"Warning: Index {idx} out of bounds for locations.")
             
-    # Add depot at end
     coords.append({
         'lat': locations[0][lat_key], 'lng': locations[0][lng_key],
         'address': locations[0]['original_address'], 'type': 'depot', 'index': 0
     })
     return coords
 
-# --- HTML Generation Function ---
-# Import these at the top of your file if they aren't already
 import webbrowser
 import os
 
-# --- NEW: Add your Google Maps API Key ---
-# The map will not work without this.
-# This was in your old file but missing from the new one.
-GOOGLE_MAPS_API_KEY = 'AIzaSyC_hI6BowrJPojeBiRldmuFVf3aqsSRZbg' # Replace with your key
+GOOGLE_MAPS_API_KEY = 'AIzaSyC_hI6BowrJPojeBiRldmuFVf3aqsSRZbg'
 
 def generate_html_report():
     """Generate comprehensive HTML report of the simulation"""
     
-    # --- 1. Prepare Map Route Data ---
-    # This part is now adapted to read routes as lists of order objects
     map_routes = []
     try:
         with state_lock:
             for v_id in sorted(current_routes.keys()):
-                route_orders = current_routes[v_id] # This is now [order_obj_1, ...]
+                route_orders = current_routes[v_id]
                 if route_orders:
-                    # generate_route_coordinates is already updated
-                    # to handle a list of order objects
                     coords = generate_route_coordinates(route_orders, all_locations)
                     map_routes.append({
                         'vehicle_id': v_id,
@@ -135,23 +115,44 @@ def generate_html_report():
                     })
     except Exception as e:
         print(f"Warning: Could not generate map routes: {e}")
-        print(f"Sample location data: {all_locations[0] if all_locations else 'No locations'}")
         map_routes = []
     
-    # --- 2. Serialize Data for JavaScript ---
     map_routes_json = json.dumps(map_routes)
     time_matrix_json = json.dumps(time_matrix)
     
-    # --- 3. Define the HTML Template ---
-    # This template is updated to show 3 metrics per vehicle
-    # and includes all necessary CSS/JS from before.
+    # NEW: Calculate additional metrics
+    total_orders = len([e for e in simulation_events if e['type'] == 'new_order'])
+    assigned_orders = len(global_order_assignments_log)
+    optimization_count = len([e for e in simulation_events if e['type'] == 'optimization'])
+    pending_count = len(pending_orders)
+    
+    # Calculate average wait time for assigned orders
+    avg_wait_time = 0
+    if order_wait_times:
+        avg_wait_time = sum(order_wait_times.values()) / len(order_wait_times)
+    
+    # Calculate success rate
+    success_rate = (assigned_orders / total_orders * 100) if total_orders > 0 else 0
+    
+    with state_lock:
+        active_vehicles = len([r for r in current_routes.values() if r])
+        avg_duration = 0
+        if active_vehicles > 0:
+            total_duration = sum([calculate_route_cost(r, time_matrix) for r in current_routes.values() if r])
+            avg_duration = int(total_duration / active_vehicles) if total_duration > 0 else 0
+        
+        # NEW: Calculate utilization metrics
+        total_capacity_used = sum([sum(order['demand'] for order in route) for route in current_routes.values() if route])
+        total_capacity_available = NUM_VEHICLES * VEHICLE_CAPACITY
+        fleet_utilization = (total_capacity_used / total_capacity_available * 100) if total_capacity_available > 0 else 0
+    
     html_template = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hybrid Delivery Simulation - Live Dashboard (Capacity Aware)</title>
+    <title>Hybrid Delivery Simulation - Enhanced Dashboard</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -171,7 +172,7 @@ def generate_html_report():
         .header h1 { font-size: 2.5em; margin-bottom: 10px; }
         .header p { font-size: 1.1em; opacity: 0.9; }
         .stats-grid {
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 20px; padding: 30px; background: #f8f9fa;
         }
         .stat-card {
@@ -186,12 +187,102 @@ def generate_html_report():
         .stat-label {
             color: #666; font-size: 0.9em; text-transform: uppercase; letter-spacing: 1px;
         }
+        .stat-trend {
+            font-size: 0.85em; margin-top: 8px; padding: 4px 8px;
+            border-radius: 12px; display: inline-block;
+        }
+        .trend-positive { background: #d4edda; color: #155724; }
+        .trend-negative { background: #f8d7da; color: #721c24; }
+        .trend-neutral { background: #e2e3e5; color: #383d41; }
+        
         .content { padding: 30px; }
         .section { margin-bottom: 40px; }
         .section-title {
             font-size: 1.8em; color: #667eea; margin-bottom: 20px;
             padding-bottom: 10px; border-bottom: 3px solid #667eea;
         }
+        
+        /* NEW: Performance Chart Styles */
+        .chart-container {
+            background: white; padding: 25px; border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 30px;
+        }
+        .chart-title {
+            font-size: 1.3em; color: #667eea; margin-bottom: 15px;
+            font-weight: bold;
+        }
+        .chart-canvas {
+            width: 100%; height: 300px;
+        }
+        
+        /* NEW: Heatmap Styles */
+        .heatmap-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
+            gap: 5px;
+            margin-top: 20px;
+        }
+        .heatmap-cell {
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            font-size: 0.85em;
+            font-weight: bold;
+            color: white;
+            transition: transform 0.2s;
+            cursor: pointer;
+        }
+        .heatmap-cell:hover {
+            transform: scale(1.1);
+            z-index: 10;
+        }
+        .heatmap-legend {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 15px;
+            font-size: 0.9em;
+        }
+        .legend-gradient {
+            width: 200px;
+            height: 20px;
+            border-radius: 10px;
+            background: linear-gradient(to right, #4ade80, #fbbf24, #f87171);
+        }
+        
+        /* NEW: Comparison Table Styles */
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .comparison-table th {
+            background: #667eea;
+            color: white;
+            padding: 15px;
+            text-align: left;
+            font-weight: bold;
+        }
+        .comparison-table td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .comparison-table tr:hover {
+            background: #f8f9fa;
+        }
+        .winner-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: bold;
+            background: #28a745;
+            color: white;
+        }
+        
         #map {
             width: 100%; height: 600px; border-radius: 12px;
             box-shadow: 0 8px 16px rgba(0,0,0,0.2); margin-bottom: 20px;
@@ -221,6 +312,7 @@ def generate_html_report():
         }
         .distance-label { font-size: 0.9em; color: #666; margin-bottom: 5px; }
         .distance-value { font-size: 1.5em; font-weight: bold; color: #667eea; }
+        
         .timeline { position: relative; padding-left: 30px; }
         .timeline::before {
             content: ''; position: absolute; left: 0; top: 0; bottom: 0;
@@ -247,6 +339,7 @@ def generate_html_report():
         .event-optimization { background: #667eea; color: white; }
         .event-rejected { background: #ff6b6b; color: white; }
         .event-details { color: #555; line-height: 1.6; }
+        
         .vehicle-grid {
             display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
             gap: 20px;
@@ -274,7 +367,6 @@ def generate_html_report():
         }
         .route-metrics {
             display: grid;
-            /* UPDATED: 3 columns for new metrics */
             grid-template-columns: repeat(3, 1fr);
             gap: 10px; margin-top: 15px;
         }
@@ -282,8 +374,9 @@ def generate_html_report():
             background: rgba(255,255,255,0.2); padding: 10px;
             border-radius: 6px; text-align: center;
         }
-        .metric-value { font-size: 1.3em; font-weight: bold; } /* Slightly smaller for 3 cols */
+        .metric-value { font-size: 1.3em; font-weight: bold; }
         .metric-label { font-size: 0.85em; opacity: 0.9; }
+        
         .pending-orders {
             background: #fff3cd; border: 2px solid #ffc107;
             border-radius: 10px; padding: 20px; margin-bottom: 20px;
@@ -293,6 +386,7 @@ def generate_html_report():
             background: white; padding: 12px; margin: 8px 0;
             border-radius: 6px; border-left: 4px solid #ffc107;
         }
+        
         .map-legend {
             background: white; padding: 15px; border-radius: 10px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px;
@@ -305,7 +399,6 @@ def generate_html_report():
         .legend-icon.depot { background: #dc3545; color: white; border-radius: 4px; }
         .legend-icon.stop { background: #667eea; color: white; }
 
-        /* --- NEW STYLES FOR ASSIGNMENT LOG --- */
         .log-table {
             width: 100%;
             border-collapse: collapse;
@@ -332,7 +425,6 @@ def generate_html_report():
             background-color: #f1f1f1;
         }
 
-        /* --- COLLAPSIBLE SECTIONS STYLES --- */
         .collapsible-section {
             margin-bottom: 30px;
             border: 1px solid #e0e0e0;
@@ -385,7 +477,7 @@ def generate_html_report():
         }
         
         .collapsible-content.expanded {
-            max-height: 2000px;
+            max-height: 3000px;
             padding: 25px;
         }
         
@@ -394,7 +486,6 @@ def generate_html_report():
             padding: 0 25px;
         }
         
-        /* Central Controls */
         .central-controls {
             background: #f8f9fa;
             padding: 20px;
@@ -462,7 +553,6 @@ def generate_html_report():
             box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
         }
         
-        /* Section-specific styling */
         .section-icon {
             font-size: 1.3em;
             margin-right: 8px;
@@ -480,7 +570,6 @@ def generate_html_report():
             padding: 0;
         }
         
-        /* Responsive design */
         @media (max-width: 768px) {
             .control-buttons {
                 flex-direction: column;
@@ -498,6 +587,10 @@ def generate_html_report():
             .collapsible-title {
                 font-size: 1.2em;
             }
+            
+            .stats-grid {
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            }
         }
     </style>
 </head>
@@ -505,7 +598,7 @@ def generate_html_report():
     <div class="container">
         <div class="header">
             <h1>🚚 Hybrid Delivery Simulation Dashboard</h1>
-            <p>Real-time Vehicle Routing with Capacity Constraints (Trace-Based)</p>
+            <p>Real-time Vehicle Routing with Capacity Constraints & Advanced Analytics</p>
             <p><strong>Simulation Period:</strong> {{start_time}} - {{end_time}}</p>
         </div>
         
@@ -517,29 +610,37 @@ def generate_html_report():
             <div class="stat-card">
                 <div class="stat-label">Orders Assigned</div>
                 <div class="stat-value">{{assigned_orders}}</div>
+                <div class="stat-trend trend-positive">{{success_rate}}% Success</div>
             </div>
             <div class="stat-card">
                 <div class="stat-label">Pending (End of Day)</div>
                 <div class="stat-value">{{pending_count}}</div>
             </div>
             <div class="stat-card">
-                <div class="stat-label">Active Vehicles (Final)</div>
-                <div class="stat-value">{{active_vehicles}}</div>
+                <div class="stat-label">Active Vehicles</div>
+                <div class="stat-value">{{active_vehicles}}/{{total_vehicles}}</div>
             </div>
             <div class="stat-card">
-                <div class="stat-label">Layer 2 Optimizations</div>
+                <div class="stat-label">Fleet Utilization</div>
+                <div class="stat-value">{{fleet_utilization}}%</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Optimizations</div>
                 <div class="stat-value">{{optimization_count}}</div>
             </div>
             <div class="stat-card">
-                <div class="stat-label">Avg Final Route</div>
+                <div class="stat-label">Avg Route Duration</div>
                 <div class="stat-value">{{avg_duration}} min</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Avg Wait Time</div>
+                <div class="stat-value">{{avg_wait_time}} min</div>
             </div>
         </div>
         
         <div class="content">
             {{pending_orders_section}}
             
-            <!-- Central Controls -->
             <div class="central-controls">
                 <h3>📋 Section Controls</h3>
                 <div class="control-buttons">
@@ -555,8 +656,22 @@ def generate_html_report():
                 </div>
             </div>
             
+            <!-- NEW: Performance Analytics Section -->
+            <div class="collapsible-section" id="analytics-section">
+                <div class="collapsible-header" onclick="toggleSection('analytics-section')">
+                    <h3 class="collapsible-title">
+                        <span class="section-icon">📊</span>
+                        Performance Analytics
+                    </h3>
+                    <span class="collapsible-icon">▼</span>
+                </div>
+                <div class="collapsible-content" id="analytics-content">
+                    {{analytics_section}}
+                </div>
+            </div>
+            
             <div class="section">
-                <h2 class="section-title">🗺️ Interactive Route Map (Final State at 10:00 PM)</h2>
+                <h2 class="section-title">🗺️ Interactive Route Map (Final State)</h2>
                 <div class="map-legend">
                     <div class="legend-item">
                         <div class="legend-icon depot">D</div> <span>Depot (Start/End Point)</span>
@@ -568,13 +683,12 @@ def generate_html_report():
                 <div class="map-controls" id="vehicleToggles"></div>
                 <div id="map"></div>
                 <div class="distance-info" id="distanceInfo">
-                    <h4>📍 Route Segment Information</h4>
+                    <h4>🔍 Route Segment Information</h4>
                     <p id="segmentDescription">Select two consecutive stops on a route to see travel details.</p>
                     <div class="distance-details" id="distanceDetails"></div>
                 </div>
             </div>
 
-            <!-- Historical Order Assignment Log Section -->
             <div class="collapsible-section" id="historical-log-section">
                 <div class="collapsible-header" onclick="toggleSection('historical-log-section')">
                     <h3 class="collapsible-title">
@@ -588,12 +702,11 @@ def generate_html_report():
                 </div>
             </div>
 
-            <!-- Final Fleet Status Section -->
             <div class="collapsible-section" id="fleet-status-section">
                 <div class="collapsible-header" onclick="toggleSection('fleet-status-section')">
                     <h3 class="collapsible-title">
                         <span class="section-icon">🚚</span>
-                        Final Fleet Status (Snapshot at 10:00 PM)
+                        Final Fleet Status
                     </h3>
                     <span class="collapsible-icon">▼</span>
                 </div>
@@ -604,9 +717,6 @@ def generate_html_report():
                 </div>
             </div>
             
-            {{premium_section}} 
-            
-            <!-- Simulation Event Timeline Section -->
             <div class="collapsible-section" id="timeline-section">
                 <div class="collapsible-header" onclick="toggleSection('timeline-section')">
                     <h3 class="collapsible-title">
@@ -625,7 +735,6 @@ def generate_html_report():
     </div>
     
     <script>
-        // Route data from Python
         const routesData = {{map_routes_json}};
         const timeMatrix = {{time_matrix_json}};
         
@@ -640,8 +749,8 @@ def generate_html_report():
         let activeHighlightVehicle = null;
         let selectedStopIndices = [];
         
-        // Collapsible sections state
         let sectionStates = {
+            'analytics-section': false,
             'historical-log-section': false,
             'fleet-status-section': false,
             'timeline-section': false
@@ -650,7 +759,7 @@ def generate_html_report():
         function initMap() {
             const depotLocation = routesData.length > 0 && routesData[0].coordinates.length > 0
                 ? { lat: routesData[0].coordinates[0].lat, lng: routesData[0].coordinates[0].lng }
-                : { lat: 22.7196, lng: 75.8577 }; // Default
+                : { lat: 22.7196, lng: 75.8577 };
             
             map = new google.maps.Map(document.getElementById('map'), {
                 zoom: 12, center: depotLocation, mapTypeControl: true,
@@ -816,7 +925,7 @@ def generate_html_report():
         }
         
         function calculateDistance(lat1, lon1, lat2, lon2) {
-            const R = 6371; // km
+            const R = 6371;
             const dLat = (lat2 - lat1) * Math.PI / 180;
             const dLon = (lon2 - lon1) * Math.PI / 180;
             const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
@@ -897,7 +1006,6 @@ def generate_html_report():
             });
         }
         
-        // Collapsible sections functionality
         function toggleSection(sectionId) {
             const section = document.getElementById(sectionId);
             const content = document.getElementById(sectionId.replace('-section', '-content'));
@@ -905,13 +1013,11 @@ def generate_html_report():
             const isExpanded = sectionStates[sectionId];
             
             if (isExpanded) {
-                // Collapse
                 content.classList.remove('expanded');
                 content.classList.add('collapsed');
                 icon.classList.remove('expanded');
                 sectionStates[sectionId] = false;
             } else {
-                // Expand
                 content.classList.remove('collapsed');
                 content.classList.add('expanded');
                 icon.classList.add('expanded');
@@ -944,7 +1050,6 @@ def generate_html_report():
             }
         }
         
-        // Initialize sections as collapsed on page load
         document.addEventListener('DOMContentLoaded', function() {
             Object.keys(sectionStates).forEach(sectionId => {
                 const content = document.getElementById(sectionId.replace('-section', '-content'));
@@ -962,23 +1067,13 @@ def generate_html_report():
 </html>
 """
     
-    # --- 4. Calculate Final Statistics ---
-    total_orders = len([e for e in simulation_events if e['type'] == 'new_order'])
-    assigned_orders = len([e for e in simulation_events if e['type'] == 'assignment' and e.get('success')])
-    optimization_count = len([e for e in simulation_events if e['type'] == 'optimization'])
-    pending_count = len(pending_orders)
+    # Calculate statistics
+    avg_wait_time_formatted = f"{avg_wait_time:.1f}" if avg_wait_time > 0 else "0"
     
-    with state_lock:
-        active_vehicles = len([r for r in current_routes.values() if r])
-        avg_duration = 0
-        if active_vehicles > 0:
-            # Pass the list of order objects directly to the new cost function
-            total_duration = sum([calculate_route_cost(r, time_matrix) for r in current_routes.values() if r])
-            avg_duration = int(total_duration / active_vehicles) if total_duration > 0 else 0
+    # Generate Analytics Section
+    analytics_html = generate_analytics_section()
     
-    # --- 5. Generate Dynamic HTML Snippets ---
-    
-    # A. Pending Orders Section (Capacity-Aware)
+    # Generate other sections (existing code)
     pending_section = ""
     if pending_orders:
         pending_html = f"""
@@ -986,7 +1081,6 @@ def generate_html_report():
             <h3>⚠️ {len(pending_orders)} Pending Orders (End of Day)</h3>
             <p>The following orders could not be assigned to the standard fleet:</p>
         """
-        # pending_orders now contains order objects
         for order in pending_orders:
             order_loc = all_locations[order['index']]['original_address'].split(',')[0]
             pending_html += f"""
@@ -997,26 +1091,18 @@ def generate_html_report():
         pending_html += "</div>"
         pending_section = pending_html
     
-    # B. Vehicle Cards Section (Capacity-Aware)
     vehicle_cards_html = ""
     with state_lock:
         for v_id in sorted(current_routes.keys()):
-            route_orders = current_routes[v_id] # List of order objects
+            route_orders = current_routes[v_id]
             if route_orders:
-                # Pass list of order objects to cost function
                 route_cost = calculate_route_cost(route_orders, time_matrix)
-                
-                # NEW: Calculate total demand and unique stops
                 total_demand = sum(order['demand'] for order in route_orders)
                 unique_stops = list(dict.fromkeys([order['index'] for order in route_orders]))
                 
                 stops_html = ""
-                # Iterate over unique stops to build the list
-                # This matches what generate_route_coordinates does
                 for stop_num, stop_index in enumerate(unique_stops, 1):
                     loc_name = all_locations[stop_index]['original_address'].split(',')[0]
-                    # stop_num is the 1-based index (1, 2, 3...)
-                    # This is what highlightStop JS function expects as 'routeIndex'
                     stops_html += f"""
                     <div class="route-stop" 
                          onclick="highlightStop(this, {v_id}, {stop_num})">
@@ -1052,19 +1138,11 @@ def generate_html_report():
                 </div>
                 """
     
-    # C. Premium Section (Simplified)
-    # The new script just logs a 'premium' event, it doesn't solve
-    # a separate route. This section is no longer needed as
-    # 'pending_orders_section' and the timeline cover it.
-    premium_section = "" 
-    
-    # D. Timeline Section (Adapted for new event types)
     timeline_html = ""
     for event in simulation_events:
         event_type = event['type']
         event_type_label = event_type.replace('_', ' ').title()
         
-        # Assign CSS class based on event type
         if event_type == 'new_order':
             event_type_class = 'event-new-order'
         elif event_type == 'assignment':
@@ -1077,12 +1155,11 @@ def generate_html_report():
         elif event_type == 'optimization':
             event_type_class = 'event-optimization'
         elif event_type == 'premium':
-            event_type_class = 'event-rejected' # Use warning/rejected color
+            event_type_class = 'event-rejected'
             event_type_label = 'End of Day'
         else:
-            event_type_class = 'event-optimization' # Default
+            event_type_class = 'event-optimization'
         
-        # The 'description' field now contains its own HTML styling
         timeline_html += f"""
         <div class="timeline-event">
             <div class="event-time">{event['time']}</div>
@@ -1090,6 +1167,7 @@ def generate_html_report():
             <div class="event-details">{event['description']}</div>
         </div>
         """
+    
     historical_log_html = ""
     if global_order_assignments_log:
         historical_log_html = f"""
@@ -1108,7 +1186,6 @@ def generate_html_report():
                 <tbody>
         """
         
-        # Use the new log
         for assignment in global_order_assignments_log:
             historical_log_html += f"""
                     <tr>
@@ -1124,29 +1201,29 @@ def generate_html_report():
         historical_log_html += "</tbody></table>"
     else:
         historical_log_html = "<p>No historical trips were logged.</p>"
-    # --- 6. Fill in Template ---
+    
+    # Fill in template
     html_content = html_template.replace('{{start_time}}', format_time(0))
     html_content = html_content.replace('{{end_time}}', format_time((SIMULATION_END_HOUR - SIMULATION_START_HOUR) * 60))
     html_content = html_content.replace('{{total_orders}}', str(total_orders))
     html_content = html_content.replace('{{assigned_orders}}', str(assigned_orders))
+    html_content = html_content.replace('{{success_rate}}', f"{success_rate:.1f}")
     html_content = html_content.replace('{{pending_count}}', str(pending_count))
     html_content = html_content.replace('{{active_vehicles}}', str(active_vehicles))
+    html_content = html_content.replace('{{total_vehicles}}', str(NUM_VEHICLES))
+    html_content = html_content.replace('{{fleet_utilization}}', f"{fleet_utilization:.1f}")
     html_content = html_content.replace('{{optimization_count}}', str(optimization_count))
     html_content = html_content.replace('{{avg_duration}}', str(avg_duration))
+    html_content = html_content.replace('{{avg_wait_time}}', avg_wait_time_formatted)
     html_content = html_content.replace('{{pending_orders_section}}', pending_section)
     html_content = html_content.replace('{{vehicle_cards}}', vehicle_cards_html)
-    html_content = html_content.replace('{{premium_section}}', premium_section)
     html_content = html_content.replace('{{timeline_events}}', timeline_html)
-
-    # --- ADD THIS NEW LINE ---
     html_content = html_content.replace('{{historical_log_section}}', historical_log_html)
-
-
+    html_content = html_content.replace('{{analytics_section}}', analytics_html)
     html_content = html_content.replace('{{map_routes_json}}', map_routes_json)
     html_content = html_content.replace('{{time_matrix_json}}', time_matrix_json)
     html_content = html_content.replace('{{google_api_key}}', GOOGLE_MAPS_API_KEY)
     
-    # --- 7. Save and Open File ---
     with open(OUTPUT_HTML_FILE, 'w', encoding='utf-8') as f:
         f.write(html_content)
     
@@ -1159,39 +1236,129 @@ def generate_html_report():
     except Exception as e:
         print(f"Could not auto-open dashboard. Please open '{OUTPUT_HTML_FILE}' manually.")
 
-# --- Parallel Optimization Worker Thread ---
+def generate_analytics_section():
+    """Generate the new analytics section with charts and insights"""
+    
+    # Vehicle Utilization Heatmap
+    heatmap_html = "<div class='chart-container'><div class='chart-title'>📊 Vehicle Capacity Utilization Heatmap</div>"
+    heatmap_html += "<div class='heatmap-container'>"
+    
+    with state_lock:
+        for v_id in sorted(current_routes.keys()):
+            route_orders = current_routes[v_id]
+            if route_orders:
+                total_demand = sum(order['demand'] for order in route_orders)
+                utilization_pct = (total_demand / VEHICLE_CAPACITY) * 100
+                
+                # Color based on utilization
+                if utilization_pct >= 80:
+                    color = '#f87171'  # Red - high utilization
+                elif utilization_pct >= 50:
+                    color = '#fbbf24'  # Yellow - medium
+                else:
+                    color = '#4ade80'  # Green - low
+                
+                heatmap_html += f"""
+                <div class="heatmap-cell" style="background: {color};" 
+                     title="Vehicle {v_id}: {utilization_pct:.1f}% utilized ({total_demand}/{VEHICLE_CAPACITY})">
+                    V{v_id}<br>{utilization_pct:.0f}%
+                </div>
+                """
+            else:
+                heatmap_html += f"""
+                <div class="heatmap-cell" style="background: #94a3b8;"
+                     title="Vehicle {v_id}: Unused">
+                    V{v_id}<br>0%
+                </div>
+                """
+    
+    heatmap_html += "</div>"
+    heatmap_html += """
+    <div class="heatmap-legend">
+        <span>Utilization:</span>
+        <div class="legend-gradient"></div>
+        <span>Low (0%) → High (100%)</span>
+    </div>
+    </div>"""
+    
+    # Optimization Performance Comparison
+    if optimization_performance_log:
+        comparison_html = "<div class='chart-container'><div class='chart-title'>⚡ Optimization Layer Comparison</div>"
+        comparison_html += "<table class='comparison-table'><thead><tr>"
+        comparison_html += "<th>Cycle #</th><th>Time</th><th>Layer 2 (OR-Tools)</th><th>Layer 3 (ALNS)</th><th>Winner</th><th>Improvement</th>"
+        comparison_html += "</tr></thead><tbody>"
+        
+        for idx, log_entry in enumerate(optimization_performance_log[:10], 1):  # Show last 10
+            comparison_html += f"<tr><td><strong>#{idx}</strong></td>"
+            comparison_html += f"<td>{log_entry['time']}</td>"
+            comparison_html += f"<td>{log_entry['l2_cost']:.2f}</td>"
+            comparison_html += f"<td>{log_entry['l3_cost']:.2f}</td>"
+            comparison_html += f"<td>{log_entry['winner']} <span class='winner-badge'>✓</span></td>"
+            comparison_html += f"<td>{log_entry['improvement']:.1f}%</td></tr>"
+        
+        comparison_html += "</tbody></table></div>"
+    else:
+        comparison_html = "<div class='chart-container'><p>No optimization comparison data available.</p></div>"
+    
+    # Key Insights
+    insights_html = "<div class='chart-container'><div class='chart-title'>💡 Key Insights</div>"
+    insights_html += "<ul style='line-height: 2; font-size: 1.05em;'>"
+    
+    # Calculate insights
+    with state_lock:
+        used_vehicles = len([r for r in current_routes.values() if r])
+        unused_vehicles = NUM_VEHICLES - used_vehicles
+        
+        if unused_vehicles > 0:
+            insights_html += f"<li>🚚 <strong>{unused_vehicles} vehicles</strong> remained unused - potential for fleet optimization</li>"
+        
+        overutilized = sum(1 for route in current_routes.values() if route and sum(o['demand'] for o in route) > VEHICLE_CAPACITY * 0.9)
+        if overutilized > 0:
+            insights_html += f"<li>⚠️ <strong>{overutilized} vehicles</strong> are operating near capacity (>90%) - consider load balancing</li>"
+        
+        underutilized = sum(1 for route in current_routes.values() if route and sum(o['demand'] for o in route) < VEHICLE_CAPACITY * 0.5)
+        if underutilized > 0:
+            insights_html += f"<li>📉 <strong>{underutilized} vehicles</strong> are underutilized (<50%) - consolidation opportunity</li>"
+        
+        if pending_orders:
+            insights_html += f"<li>❌ <strong>{len(pending_orders)} orders</strong> could not be fulfilled - consider expanding fleet or capacity</li>"
+        else:
+            insights_html += "<li>✅ <strong>All orders</strong> successfully assigned to the standard fleet</li>"
+        
+        total_assignments = len(global_order_assignments_log)
+        l1_assignments = len([log for log in global_order_assignments_log if log['method'] in ['greedy_insert', 'cheapest_insert']])
+        if total_assignments > 0:
+            l1_percentage = (l1_assignments / total_assignments) * 100
+            insights_html += f"<li>⚡ <strong>{l1_percentage:.1f}%</strong> of orders assigned in real-time (Layer 1) - excellent responsiveness</li>"
+    
+    insights_html += "</ul></div>"
+    
+    return heatmap_html + comparison_html + insights_html
+
 def parallel_optimization_worker():
-    """
-    Background thread to run Layer 2 (OR-Tools) and Layer 3 (ALNS)
-    in parallel periodically and select the best solution based on total cost.
-    """
-    global current_routes, simulation_events, pending_orders, global_order_assignments_log
+    """Background thread to run Layer 2 (OR-Tools) and Layer 3 (ALNS) in parallel"""
+    global current_routes, simulation_events, pending_orders, global_order_assignments_log, optimization_performance_log
     
     while simulation_running:
         time.sleep(LAYER_2_INTERVAL_SECONDS)
         
-        # --- Get current state ---
         with state_lock:
             routes_to_optimize = {vid: r[:] for vid, r in current_routes.items()}
             pending_to_optimize = pending_orders[:]
         
         if not any(routes_to_optimize.values()) and not pending_to_optimize:
-            # print("--- [OPTIMIZER WORKER] No routes or pending orders to optimize. Skipping cycle. ---")
             continue
 
         print(f"\n{'='*10} [OPTIMIZER WORKER @ {datetime.now().strftime('%I:%M:%S %p')}] Starting Parallel Optimization {'='*10}")
         print(f"Optimizing {sum(len(r) for r in routes_to_optimize.values())} assigned orders and {len(pending_to_optimize)} pending orders.")
 
-        # --- Setup threads ---
         l2_results = {}
         l3_results = {}
         
-        # Target function for Layer 2 (OR-Tools) thread
         def run_layer2():
             print("--- [LAYER 2 OR-Tools] Starting optimization... ---")
             start_time = time.time()
             try:
-                # Use the function from hybrid_solver_new
                 opt_routes, unassigned = batch_optimization_vrp(
                     routes_to_optimize, pending_to_optimize, time_matrix,
                     NUM_VEHICLES, VEHICLE_CAPACITY, MAX_ROUTE_DURATION_MINS
@@ -1206,16 +1373,13 @@ def parallel_optimization_worker():
             l2_results['runtime'] = end_time - start_time
             print(f"--- [LAYER 2 OR-Tools] Finished in {l2_results['runtime']:.2f} seconds. Found {len(l2_results.get('unassigned',[]))} unassigned. ---")
 
-        # Target function for Layer 3 (ALNS) thread
         def run_layer3():
             print("--- [LAYER 3 ALNS] Starting optimization... ---")
             start_time = time.time()
             try:
-                # Use the function from hybrid_solver_new
-                opt_routes, unassigned = run_alns_optimization( # Using the placeholder
-                    routes_to_optimize, pending_to_optimize, time_matrix, distance_matrix, # Pass distance_matrix
+                opt_routes, unassigned = run_alns_optimization(
+                    routes_to_optimize, pending_to_optimize, time_matrix, distance_matrix,
                     NUM_VEHICLES, VEHICLE_CAPACITY, MAX_ROUTE_DURATION_MINS
-                    # Add your ALNS params here if needed
                 )
                 l3_results['routes'] = opt_routes
                 l3_results['unassigned'] = unassigned
@@ -1227,24 +1391,21 @@ def parallel_optimization_worker():
             l3_results['runtime'] = end_time - start_time
             print(f"--- [LAYER 3 ALNS] Finished in {l3_results['runtime']:.2f} seconds. Found {len(l3_results.get('unassigned',[]))} unassigned. ---")
 
-        # --- Run threads in parallel ---
         thread_l2 = threading.Thread(target=run_layer2)
         thread_l3 = threading.Thread(target=run_layer3)
         
         thread_l2.start()
         thread_l3.start()
         
-        thread_l2.join() # Wait for L2 to finish
-        thread_l3.join() # Wait for L3 to finish
+        thread_l2.join()
+        thread_l3.join()
 
         print("--- [OPTIMIZER WORKER] Both optimization layers completed. Comparing results... ---")
 
-        # --- Compare results and select the best ---
         best_solution = None
         best_cost = float('inf')
         selected_layer = "None"
         
-        # Calculate cost for Layer 2 solution
         cost_l2 = float('inf')
         trucks_l2 = 0
         dist_l2 = 0
@@ -1261,7 +1422,6 @@ def parallel_optimization_worker():
         else:
              print(f"    L2 (OR-Tools) Result: Failed or produced no solution.")
 
-        # Calculate cost for Layer 3 solution
         cost_l3 = float('inf')
         trucks_l3 = 0
         dist_l3 = 0
@@ -1271,29 +1431,33 @@ def parallel_optimization_worker():
                 FIXED_COST_PER_TRUCK, VARIABLE_COST_PER_KM
             )
             print(f"    L3 (ALNS) Result: Cost={cost_l3:.2f}, Trucks={trucks_l3}, Dist={dist_l3:.2f} km, Unassigned={len(l3_results['unassigned'])}, Time={l3_results['runtime']:.2f}s")
-             # --- Selection Logic ---
-             # Choose L3 if its cost is strictly better than L2's best cost so far
             if cost_l3 < best_cost:
                 best_cost = cost_l3
                 best_solution = l3_results
                 selected_layer = "Layer 3 (ALNS)"
-            # Optional Tie-breaking (e.g., prefer fewer unassigned if costs are equal)
             elif cost_l3 == best_cost and len(l3_results['unassigned']) < len(best_solution['unassigned']):
                  best_solution = l3_results
                  selected_layer = "Layer 3 (ALNS) - Tie Break on Unassigned"
-
         else:
              print(f"    L3 (ALNS) Result: Failed or produced no solution.")
 
+        # NEW: Log optimization performance for analytics
+        if cost_l2 != float('inf') and cost_l3 != float('inf'):
+            improvement = ((max(cost_l2, cost_l3) - min(cost_l2, cost_l3)) / max(cost_l2, cost_l3)) * 100
+            optimization_performance_log.append({
+                'time': datetime.now().strftime("%I:%M:%S %p"),
+                'l2_cost': cost_l2,
+                'l3_cost': cost_l3,
+                'winner': 'L2' if cost_l2 < cost_l3 else 'L3',
+                'improvement': improvement
+            })
 
-        # --- Update global state with the best solution found ---
         if best_solution:
             print(f"--- [OPTIMIZER WORKER] Selected solution from: {selected_layer} with Cost: {best_cost:.2f} ---")
             with state_lock:
                 current_routes = best_solution['routes']
                 pending_orders = best_solution['unassigned']
                 
-                # Log the optimization event (maybe add which layer won)
                 log_time = datetime.now().strftime("%I:%M:%S %p")
                 simulation_events.append({
                     'type': 'optimization',
@@ -1304,14 +1468,12 @@ def parallel_optimization_worker():
             print("--- [OPTIMIZER WORKER] Warning: Neither optimization layer produced a valid solution. State not updated. ---")
             
         print(f"{'='*10} [OPTIMIZER WORKER] Cycle Finished {'='*10}")
-            
-# --- Main Simulation Function ---
+
 def run_hybrid_simulation():
     global current_routes, pending_orders, simulation_running, all_locations, time_matrix, simulation_events, simulation_start_time
-    global distance_matrix
+    global distance_matrix, order_wait_times
     print("--- Starting HYBRID DYNAMIC Delivery Simulation (Capacity Aware, Trace-Based) ---")
     
-    # 1. Load the "Map" (Time Matrix & Locations)
     try:
         with open(TIME_MATRIX_FILE, 'r') as f: 
             data = json.load(f)
@@ -1321,7 +1483,6 @@ def run_hybrid_simulation():
         print(f"✅ Master distance matrix loaded ({len(distance_matrix)}x{len(distance_matrix)}).")
         print(f"✅ {len(all_locations)} locations loaded.")
         
-        # Basic validation (Check if matrices match location count)
         if not all_locations or not time_matrix or not distance_matrix:
              raise ValueError("Loaded data is missing locations, time_matrix, or distance_matrix.")
         if len(time_matrix) != len(all_locations) or len(distance_matrix) != len(all_locations):
@@ -1340,16 +1501,14 @@ def run_hybrid_simulation():
         print(f"FATAL Error loading data from '{TIME_MATRIX_FILE}': {e}")
         return
         
-    # 2. Load the "Event Script" (Historical Orders)
     try:
         all_orders_df = pd.read_csv(PREPROCESSED_ORDER_FILE)
-        # Filter for only the day we want to simulate
         sim_orders_df = all_orders_df[
             all_orders_df['day_of_year'] == SIMULATION_DAY_OF_YEAR
         ].sort_values(by='minute_of_day')
         
         historical_orders = sim_orders_df.to_dict('records')
-        historical_orders.reverse() # Reverse so we can .pop() from the end
+        historical_orders.reverse()
         print(f"✅ Loaded {len(historical_orders)} orders for simulation day {SIMULATION_DAY_OF_YEAR}.")
         
     except FileNotFoundError:
@@ -1359,34 +1518,27 @@ def run_hybrid_simulation():
         print(f"Error loading orders: {e}")
         return
 
-    # 3. Initialize Simulation State
     current_routes = {i: [] for i in range(NUM_VEHICLES)}
     pending_orders = []
     simulation_events = []
-    simulation_start_time = datetime.now() # Real-world start time
+    order_wait_times = {}
+    simulation_start_time = datetime.now()
 
-    # 4. Start Layer 2 Background Thread
-    # layer2_thread = threading.Thread(target=layer2_worker, daemon=True)
-    # layer2_thread.start()
-    optimizer_thread = threading.Thread(target=parallel_optimization_worker, daemon=True) # New line
+    optimizer_thread = threading.Thread(target=parallel_optimization_worker, daemon=True)
     optimizer_thread.start()
-    # print(f"✅ Layer 2 background optimization thread started (Interval: {LAYER_2_INTERVAL_SECONDS}s).")
-    print(f"✅ Parallel Optimizer (L2/L3) thread started (Interval: {LAYER_2_INTERVAL_SECONDS}s).") # New log message
+    print(f"✅ Parallel Optimizer (L2/L3) thread started (Interval: {LAYER_2_INTERVAL_SECONDS}s).")
     print(f"✅ Simulating {NUM_VEHICLES} vehicles with {VEHICLE_CAPACITY} capacity each.")
     print(f"--- Simulating Day {SIMULATION_DAY_OF_YEAR} from {SIMULATION_START_HOUR}:00 to {SIMULATION_END_HOUR}:00 ---")
 
-    # --- Main Simulation Loop (Layer 1) ---
     for minute in range(SIMULATION_START_HOUR * 60, SIMULATION_END_HOUR * 60, MINUTES_PER_TICK):
         current_time_str = f"Day {SIMULATION_DAY_OF_YEAR}, {minute//60:02d}:{minute%60:02d}"
         print(f"\n{'='*15} {current_time_str} (Tick: {minute} - {minute + MINUTES_PER_TICK}) {'='*15}")
         
-        # --- A: Check for new orders from our REAL data ---
         orders_this_tick = 0
         while historical_orders and historical_orders[-1]['minute_of_day'] < (minute + MINUTES_PER_TICK):
             order_data = historical_orders.pop()
             orders_this_tick += 1
             
-            # Ensure index is an integer and valid
             try:
                 location_idx = int(order_data['location_index'])
                 if location_idx >= len(all_locations):
@@ -1399,7 +1551,8 @@ def run_hybrid_simulation():
             new_order = {
                 'id': order_data.get('order_id', f"ord_{order_data['timestamp']}"),
                 'index': location_idx,
-                'demand': int(order_data['demand'])
+                'demand': int(order_data['demand']),
+                'arrival_minute': minute  # NEW: Track arrival time
             }
             
             with state_lock:
@@ -1417,20 +1570,14 @@ def run_hybrid_simulation():
         if orders_this_tick > 0:
             print(f"Total {orders_this_tick} new orders this tick. Total pending: {len(pending_orders)}")
         
-        # --- B: Try to assign pending orders (Layer 1) ---
         if pending_orders:
-            # We iterate on a copy because we'll be removing items
             for order_to_assign in pending_orders[:]:
                 if order_to_assign not in pending_orders:
-                    continue # Was assigned by L2 in the background
+                    continue
                     
                 print(f"\n[LAYER 1] Attempting to assign Order #{order_to_assign['id']} (Demand: {order_to_assign['demand']})...")
-                routes_before_assignment = {}
-                # with state_lock:
-                #     # Get a deep copy of the routes *before* the solver runs
-                #     routes_before_assignment = {vid: r[:] for vid, r in current_routes.items()}
+                
                 with state_lock:
-                    # Pass the full order object and capacity constraints
                     final_routes, method = assign_new_order_realtime(
                         order_to_assign, 
                         current_routes, 
@@ -1439,11 +1586,10 @@ def run_hybrid_simulation():
                         MAX_ROUTE_DURATION_MINS
                     )
 
-                if final_routes: # If assignment was successful
+                if final_routes:
                     order_location = all_locations[order_to_assign['index']]['original_address'].split(',')[0]
                     print(f"SUCCESS (L1): Order #{order_to_assign['id']} assigned via {method} method.")
                     
-                    # --- NEW LOGIC: FIND WHICH VEHICLE CHANGED ---
                     assigned_vehicle_id = -1
                     newly_assigned_order_id = order_to_assign['id']
                     
@@ -1453,8 +1599,11 @@ def run_hybrid_simulation():
                             assigned_vehicle_id = v_id
                             break
 
+                    # NEW: Calculate wait time
+                    wait_time = minute - order_to_assign['arrival_minute']
+                    order_wait_times[order_to_assign['id']] = wait_time
+
                     with state_lock:
-                        # --- ADD TO NEW ASSIGNMENT LOG ---
                         if assigned_vehicle_id != -1:
                             global_order_assignments_log.append({
                                 "timestamp": format_time(minute - SIMULATION_START_HOUR * 60),
@@ -1465,19 +1614,17 @@ def run_hybrid_simulation():
                                 "method": method
                             })
                         
-                        # Set the new routes
                         current_routes = final_routes
                         if order_to_assign in pending_orders:
-                            pending_orders.remove(order_to_assign) # Remove from pending
+                            pending_orders.remove(order_to_assign)
                     
                     simulation_events.append({
                         'type': 'assignment',
                         'time': format_time(minute - SIMULATION_START_HOUR * 60),
-                        'description': f"<span style='color:green;'>✓ ASSIGNED (L1)</span> Order #{order_to_assign['id']} via <strong>{method}</strong>. Dest: {order_location}",
+                        'description': f"<span style='color:green;'>✓ ASSIGNED (L1)</span> Order #{order_to_assign['id']} via <strong>{method}</strong>. Dest: {order_location}. Wait: {wait_time} min",
                         'success': True
                     })
                 else:
-                    # If final_routes is None, assignment failed
                     print(f"FAILURE (L1): Order #{order_to_assign['id']} could not be assigned. Awaiting Layer 2.")
                     simulation_events.append({
                         'type': 'assignment',
@@ -1489,16 +1636,13 @@ def run_hybrid_simulation():
         if not pending_orders:
             print("All pending orders assigned.")
             
-        # Control simulation speed
-        time.sleep(0.1) # Faster simulation
+        time.sleep(0.1)
 
-    # --- End of Day Processing ---
     simulation_running = False
     print("\n--- Dynamic Simulation Ended ---")
-    print("Waiting for Layer 2 thread to finish...")
-    time.sleep(LAYER_2_INTERVAL_SECONDS + 2) # Wait for L2 thread to stop
-    
-    # Final check for any remaining pending orders
+    print("Waiting for Parallel Optimizer thread to finish last cycle...")
+    time.sleep(LAYER_2_INTERVAL_SECONDS + 5)
+
     if pending_orders:
         print(f"\n--- {len(pending_orders)} orders remained unassigned at end of day ---")
         for order in pending_orders:
@@ -1512,18 +1656,10 @@ def run_hybrid_simulation():
         })
     else:
         print("All orders were assigned to the standard fleet. ✅")
-    
-    # --- End of Day Processing ---
-    simulation_running = False
-    print("\n--- Dynamic Simulation Ended ---")
-    print("Waiting for Parallel Optimizer thread to finish last cycle...")
-    time.sleep(LAYER_2_INTERVAL_SECONDS + 5) # Wait a bit longer for potentially slower ALNS
 
-    # --- FINAL SIMULATION SUMMARY ---
     print("\n" + "="*20 + " FINAL SIMULATION SUMMARY " + "="*20)
     
     total_orders_processed = len([e for e in simulation_events if e['type'] == 'new_order'])
-    # Count assignments differently now from the assignment log
     total_assignments_logged = len(global_order_assignments_log)
     final_pending_count = len(pending_orders)
     
@@ -1531,17 +1667,14 @@ def run_hybrid_simulation():
     print(f"Fleet Size: {NUM_VEHICLES} vehicles, Capacity: {VEHICLE_CAPACITY} units each")
     print("-" * 60)
     print(f"Total Orders Processed: {total_orders_processed}")
-    # Note: L1 might assign, then L2/L3 reassigns. This log counts each assignment event.
     print(f"Total Assignment Events Logged: {total_assignments_logged}") 
     print(f"Orders Pending at End of Day: {final_pending_count}")
     print("-" * 60)
 
-    # Calculate final state metrics
     final_cost, final_trucks_used, final_total_distance = calculate_total_fleet_cost(
         current_routes, distance_matrix, FIXED_COST_PER_TRUCK, VARIABLE_COST_PER_KM
     )
     
-    # Calculate final average duration ONLY for routes used
     final_route_durations = [calculate_route_cost(r, time_matrix) for r in current_routes.values() if r]
     avg_final_duration = sum(final_route_durations) / len(final_route_durations) if final_route_durations else 0
 
@@ -1552,16 +1685,13 @@ def run_hybrid_simulation():
     print(f"  - Estimated Total Cost: {final_cost:.2f}")
     print("-" * 60)
     
-    # Count optimization runs
     opt_events = [e for e in simulation_events if e['type'] == 'optimization']
     print(f"Parallel Optimization Cycles Triggered: {len(opt_events)}")
-    # Could add more detail here later by parsing description if needed
 
     print("=" * 60)
     
-    # Generate final HTML report (as before)
-    print("\n--- Generating HTML Dashboard ---")
+    print("\n--- Generating Enhanced HTML Dashboard ---")
     generate_html_report()
+
 if __name__ == "__main__":
     run_hybrid_simulation()
-
