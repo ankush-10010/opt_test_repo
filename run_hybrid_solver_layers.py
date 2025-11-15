@@ -18,13 +18,14 @@ random.seed(42)
 SIMULATION_START_HOUR = 9
 SIMULATION_END_HOUR = 22
 MINUTES_PER_TICK = 10
-NUM_VEHICLES = 8
+NUM_VEHICLES = 10
 TIME_MATRIX_FILE = 'matrix_data_with_distance.json'
 
 VEHICLE_CAPACITY = 20
 MAX_ROUTE_DURATION_MINS = 200
 PREPROCESSED_ORDER_FILE = 'preprocessed_orders.csv'
-SIMULATION_DAY_OF_YEAR = 254
+# SIMULATION_DAY_OF_YEAR = 254
+SIMULATION_DAY_OF_YEAR = 358
 
 LAYER_2_INTERVAL_SECONDS = 60
 OUTPUT_HTML_FILE = 'outputs/hybrid_simulation_live_capacity.html'
@@ -1360,8 +1361,9 @@ def parallel_optimization_worker():
             start_time = time.time()
             try:
                 opt_routes, unassigned = batch_optimization_vrp(
-                    routes_to_optimize, pending_to_optimize, time_matrix,
-                    NUM_VEHICLES, VEHICLE_CAPACITY, MAX_ROUTE_DURATION_MINS
+                    current_routes=routes_to_optimize, pending_orders=pending_to_optimize, time_matrix=time_matrix,distance_matrix=distance_matrix,
+                    num_vehicles=NUM_VEHICLES, vehicle_capacity=VEHICLE_CAPACITY, max_route_duration_mins=MAX_ROUTE_DURATION_MINS,
+                    variable_cost_per_km=VARIABLE_COST_PER_KM, fixed_cost_per_truck=FIXED_COST_PER_TRUCK
                 )
                 l2_results['routes'] = opt_routes
                 l2_results['unassigned'] = unassigned
@@ -1378,8 +1380,8 @@ def parallel_optimization_worker():
             start_time = time.time()
             try:
                 opt_routes, unassigned = run_alns_optimization(
-                    routes_to_optimize, pending_to_optimize, time_matrix, distance_matrix,
-                    NUM_VEHICLES, VEHICLE_CAPACITY, MAX_ROUTE_DURATION_MINS
+                    current_routes_input=routes_to_optimize, pending_orders_input=pending_to_optimize, time_matrix=time_matrix, distance_matrix=distance_matrix,
+                    num_vehicles=NUM_VEHICLES, vehicle_capacity=VEHICLE_CAPACITY, max_route_duration_mins=MAX_ROUTE_DURATION_MINS , fixed_cost_per_truck=FIXED_COST_PER_TRUCK, variable_cost_per_km=VARIABLE_COST_PER_KM
                 )
                 l3_results['routes'] = opt_routes
                 l3_results['unassigned'] = unassigned
